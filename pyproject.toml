@@ -1,0 +1,18 @@
+[tool.poetry]
+name = "pipe_speed"
+version = "0.1.0"
+description = "流体网络管道流速计算器"
+packages = [{include = "pipe_speed", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+
+[tool.poetry.scripts]
+pipe-speed = "pipe_speed.main:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
