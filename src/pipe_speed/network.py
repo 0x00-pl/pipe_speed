@@ -60,42 +60,52 @@ def infer_type(name: str, in_count: int, out_count: int, explicit_type: str | No
             f"(入边={in_count}, 出边={out_count})，请显式指定 type")
 
 
-def build_network(nodes_data: dict, edges_data: list[dict]) -> Network:
+def build_network(nodes_data: dict | None = None, edges_data: list[dict] | None = None) -> Network:
     """从原始 JSON 数据构建 Network
 
     Args:
-        nodes_data: {"节点名": {"max_flow": ..., "type": ...(可选)}}
+        nodes_data: {"节点名": {"max_flow": ..., "type": ...(可选)}}，可选，
+                    未指定的节点从 edges 中自动推导，使用默认 max_flow=inf
         edges_data: [{"from": "...", "to": "...", "max_flow": ...}]
 
     Returns:
         构建好的 Network 对象
     """
+    if nodes_data is None:
+        nodes_data = {}
+    if edges_data is None:
+        edges_data = []
+
     net = Network()
 
     # 第一遍：统计每个节点的出入边数
     in_counts: dict[str, int] = {}
     out_counts: dict[str, int] = {}
 
-    for name in nodes_data:
+    # 从 edges 中收集所有出现的节点名
+    all_node_names: set[str] = set()
+    for edge in edges_data:
+        all_node_names.add(edge["from"])
+        all_node_names.add(edge["to"])
+
+    # 合并显式声明的节点和从 edges 推导的节点
+    for name in all_node_names | set(nodes_data.keys()):
         in_counts[name] = 0
         out_counts[name] = 0
 
     for edge in edges_data:
         src = edge["from"]
         dst = edge["to"]
-        # 确保节点存在
-        for n in (src, dst):
-            if n not in nodes_data:
-                raise ValueError(f"边引用了未定义的节点: '{n}'")
         out_counts[src] = out_counts.get(src, 0) + 1
         in_counts[dst] = in_counts.get(dst, 0) + 1
 
     # 第二遍：创建元件实例
-    for name, props in nodes_data.items():
-        in_count = in_counts.get(name, 0)
-        out_count = out_counts.get(name, 0)
+    for name in in_counts:
+        in_count = in_counts[name]
+        out_count = out_counts[name]
+        props = nodes_data.get(name, {})
         explicit_type = props.get("type")
-        max_flow = props.get("max_flow", float("inf"))
+        max_flow = props.get("max_flow", 120.0)
 
         cls = infer_type(name, in_count, out_count, explicit_type)
         net.nodes[name] = cls(name=name, max_flow=max_flow)
@@ -106,7 +116,7 @@ def build_network(nodes_data: dict, edges_data: list[dict]) -> Network:
         net.in_edges[name] = []
         net.out_edges[name] = []
 
-    for i, edge in enumerate(edges_data):
+    for edge in edges_data:
         src = edge["from"]
         dst = edge["to"]
         max_flow = edge.get("max_flow", 120.0)
@@ -163,34 +173,14 @@ def validate(net: Network) -> None:
             if out_count != 1:
                 raise ValueError(f"限流器 '{name}': 需要恰好 1 条出边，实际 {out_count}")
 
-    # 检查无环（DAG）
-    _check_dag(net)
-
-
-def _check_dag(net: Network) -> None:
-    """使用 Kahn 算法检查有向图无环，同时返回拓扑序"""
-    in_degree: dict[str, int] = {}
-    for name in net.nodes:
-        in_degree[name] = len(net.in_edges[name])
-
-    queue = [name for name, deg in in_degree.items() if deg == 0]
-    visited_count = 0
-
-    while queue:
-        node = queue.pop(0)
-        visited_count += 1
-        for pipe in net.out_edges[node]:
-            neighbor = pipe.target
-            in_degree[neighbor] -= 1
-            if in_degree[neighbor] == 0:
-                queue.append(neighbor)
-
-    if visited_count != len(net.nodes):
-        raise ValueError("网络中存在环路（非 DAG），无法求解")
-
-
 def topological_order(net: Network) -> list[str]:
-    """返回节点名的拓扑序列表（Kahn 算法）"""
+    """返回节点顺序（Kahn 拓扑排序，兼容含环图）
+
+    对 DAG：返回标准拓扑序。
+    对含环图：先排 DAG 部分（零入度节点），剩余环内节点按名称
+    排序追加。迭代求解器对顺序不敏感（单调不动点迭代必定收敛），
+    拓扑序仅影响收敛速度。
+    """
     in_degree: dict[str, int] = {}
     for name in net.nodes:
         in_degree[name] = len(net.in_edges[name])
@@ -206,5 +196,16 @@ def topological_order(net: Network) -> list[str]:
             in_degree[neighbor] -= 1
             if in_degree[neighbor] == 0:
                 queue.append(neighbor)
+
+    # 剩余节点在环内，按启发式排序：优先选入边来自已排节点的
+    if len(order) < len(net.nodes):
+        remaining = set(net.nodes.keys()) - set(order)
+        while remaining:
+            # 选"已排上游节点最多"的节点，尽量沿流向排列
+            best = max(remaining, key=lambda n: sum(
+                1 for p in net.in_edges[n] if p.source in order
+            ))
+            order.append(best)
+            remaining.remove(best)
 
     return order

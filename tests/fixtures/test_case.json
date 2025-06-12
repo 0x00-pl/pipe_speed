@@ -1,0 +1,16 @@
+{
+  "nodes": {
+    "l": {"max_flow": 6}
+  },
+  "edges": [
+    {"from": "s", "to": "a"},
+    {"from": "a", "to": "l"},
+    {"from": "l", "to": "b"},
+    {"from": "b", "to": "c"},
+    {"from": "c", "to": "a"},
+    {"from": "c", "to": "d"},
+    {"from": "d", "to": "a"},
+    {"from": "d", "to": "e"},
+    {"from": "d", "to": "f"}
+  ]
+}

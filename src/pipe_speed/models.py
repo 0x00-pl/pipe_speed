@@ -22,32 +22,32 @@ class Pipe:
 class Inlet:
     """入口：提供流体，0 入边，≥1 出边"""
     name: str
-    max_flow: float = float('inf')  # 最大供流速率（可能因下游阻塞而降低）
+    max_flow: float = 120.0  # 最大供流速率（可能因下游阻塞而降低）
 
 
 @dataclass
 class Outlet:
     """出口：消耗流体，≥1 入边，0 出边"""
     name: str
-    max_flow: float = float('inf')  # 最大消耗速率
+    max_flow: float = 120.0  # 最大消耗速率
 
 
 @dataclass
 class Splitter:
     """分流器：1 入边，1~3 出边，均分输入到输出"""
     name: str
-    max_flow: float = float('inf')  # 元件最大吞吐量
+    max_flow: float = 120.0  # 元件最大吞吐量
 
 
 @dataclass
 class Merger:
     """汇流器：1~3 入边，1 出边，合并多路输入"""
     name: str
-    max_flow: float = float('inf')  # 元件最大吞吐量
+    max_flow: float = 120.0  # 元件最大吞吐量
 
 
 @dataclass
 class Limiter:
     """限流器：1 入边，1 出边，限制通过流量"""
     name: str
-    max_flow: float = float('inf')  # 元件最大吞吐量
+    max_flow: float = 120.0  # 元件最大吞吐量

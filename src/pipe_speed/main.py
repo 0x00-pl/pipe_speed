@@ -35,7 +35,7 @@ def main():
 
     try:
         # 加载网络
-        net = load_network(args.input_file)
+        net, queries = load_network(args.input_file)
     except FileNotFoundError as e:
         print(f"错误: {e}", file=sys.stderr)
         sys.exit(1)
@@ -49,6 +49,12 @@ def main():
     # 输出
     if args.json:
         import json
+        matching = [
+            p for p in net.pipes
+            if not queries or any(
+                q.matches(p.source, p.target) for q in queries
+            )
+        ]
         result = {
             "iterations": iterations,
             "pipes": [
@@ -57,12 +63,12 @@ def main():
                     "target": p.target,
                     "flow": round(p.flow, 6)
                 }
-                for p in net.pipes
+                for p in matching
             ]
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
-        print_results(net, iterations)
+        print_results(net, iterations, queries)
 
 
 if __name__ == "__main__":
