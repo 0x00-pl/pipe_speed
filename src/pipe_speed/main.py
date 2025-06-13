@@ -5,9 +5,24 @@
 
 import argparse
 import sys
+from pathlib import Path
 
-from .io_handler import load_network, print_results
+from .io_handler import load_network, print_results, render_network, format_echo
 from .solver import solve
+
+SEP = "===="
+
+
+def _read_input(filepath: str) -> str:
+    if filepath == "-":
+        raw = sys.stdin.read()
+    else:
+        path = Path(filepath)
+        if not path.exists():
+            raise FileNotFoundError(f"文件不存在: {filepath}")
+        raw = path.read_text(encoding="utf-8")
+    # 去除 UTF-8 BOM
+    return raw.encode("utf-8").decode("utf-8-sig")
 
 
 def main():
@@ -16,7 +31,7 @@ def main():
     )
     parser.add_argument(
         "input_file",
-        help="JSON 格式的网络定义文件（nodes + edges）"
+        help="网络定义文件，- 表示 stdin（支持 JSON 或文本格式）"
     )
     parser.add_argument(
         "--epsilon", type=float, default=1e-9,
@@ -30,18 +45,39 @@ def main():
         "--json", action="store_true",
         help="以 JSON 格式输出结果"
     )
+    parser.add_argument(
+        "--show", action="store_true",
+        help="显示网络拓扑图（之后继续求解）"
+    )
+    parser.add_argument(
+        "--echo", action="store_true",
+        help="回显输入内容"
+    )
 
     args = parser.parse_args()
 
+    # 读取输入（stdin 只读一次）
     try:
-        # 加载网络
-        net, queries = load_network(args.input_file)
+        raw_input = _read_input(args.input_file)
     except FileNotFoundError as e:
         print(f"错误: {e}", file=sys.stderr)
         sys.exit(1)
+
+    try:
+        net, queries = load_network(args.input_file, content=raw_input)
     except (ValueError, KeyError) as e:
         print(f"网络定义错误: {e}", file=sys.stderr)
         sys.exit(1)
+
+    # --echo: 回显解析后的内容（管道 + 节点属性）
+    if args.echo:
+        print(format_echo(net, queries))
+        print(SEP)
+
+    # --show: 显示拓扑图后继续求解
+    if args.show:
+        print(render_network(net))
+        print(SEP)
 
     # 求解
     iterations = solve(net, epsilon=args.epsilon, max_iterations=args.max_iter)

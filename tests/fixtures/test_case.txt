@@ -1,11 +1,11 @@
-l : 6
+﻿l : 6
 s -> a
 a -> l
 l -> b
 b -> c
 c -> a
 c -> d
-d -> a
+d -> b
 d -> e
 d -> f
 e : ?

@@ -9,7 +9,7 @@
     {"from": "b", "to": "c"},
     {"from": "c", "to": "a"},
     {"from": "c", "to": "d"},
-    {"from": "d", "to": "a"},
+    {"from": "d", "to": "b"},
     {"from": "d", "to": "e"},
     {"from": "d", "to": "f"}
   ]

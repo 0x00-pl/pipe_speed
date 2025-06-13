@@ -12,7 +12,6 @@ import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 from .network import Network, build_network
 
@@ -42,16 +41,19 @@ def _match_any(queries: list[Query], src: str, dst: str) -> bool:
     return any(q.matches(src, dst) for q in queries)
 
 
-def load_network(filepath: str) -> tuple[Network, list[Query]]:
+def load_network(filepath: str, content: str | None = None) -> tuple[Network, list[Query]]:
     """从文件加载并构建网络（自动检测 JSON 或文本格式）
 
     Args:
         filepath: 输入文件路径，"-" 表示 stdin
+        content: 可选，预读取的内容（避免重复读取 stdin）
 
     Returns:
         (Network, queries): 构建好的网络和输出过滤查询列表
     """
-    if filepath == "-":
+    if content is not None:
+        pass  # 使用传入的内容
+    elif filepath == "-":
         content = sys.stdin.read()
     else:
         path = Path(filepath)
@@ -60,6 +62,8 @@ def load_network(filepath: str) -> tuple[Network, list[Query]]:
         with open(path, "r", encoding="utf-8") as f:
             content = f.read()
 
+    # 去除 UTF-8 BOM
+    content = content.encode("utf-8").decode("utf-8-sig")
     stripped = content.strip()
     if stripped.startswith("{"):
         net = _load_json(stripped)
@@ -202,3 +206,70 @@ def print_results(net: Network, iterations: int,
                   queries: list[Query] | None = None) -> None:
     """打印结果到控制台"""
     print(format_results(net, iterations, queries))
+
+
+def format_echo(net: Network, queries: list[Query] | None = None) -> str:
+    """将解析后的网络回显为规范文本格式
+
+    输出节点属性（max_flow ≠ 120 时）和管道连接，
+    末尾附查询行（如有）。
+    """
+    lines = []
+
+    # 节点属性（仅非默认值）
+    for name, comp in sorted(net.nodes.items()):
+        mf = getattr(comp, 'max_flow', 120)
+        if mf != 120:
+            lines.append(f"{name} : {mf:.0f}")
+
+    # 管道
+    for pipe in net.pipes:
+        lines.append(f"{pipe.source} -> {pipe.target}")
+
+    # 查询
+    if queries:
+        for q in queries:
+            if q.node:
+                lines.append(f"{q.node} : ?")
+            elif q.source and q.target:
+                lines.append(f"{q.source} -> {q.target} : ?")
+
+    return "\n".join(lines)
+
+
+def render_network(net: Network) -> str:
+    """以文字形式绘制网络拓扑图
+
+    生成 Mermaid 语法，由 mermaidx 渲染为 ASCII 盒图。
+    mermaidx 为可选依赖。
+    """
+    if not net.nodes:
+        return "(空网络)"
+
+    # 生成 Mermaid 语法
+    mermaid = _to_mermaid(net)
+
+    try:
+        import mermaidx
+        d = mermaidx.render(mermaid)
+        return d.ascii()
+    except ImportError:
+        return (
+            "mermaidx 未安装，无法渲染。请运行：\n"
+            "  poetry install --with visualize   # Poetry 开发环境\n"
+            "  pip install mermaidx             # 已打包安装后\n\n"
+            f"Mermaid 源码:\n{mermaid}"
+        )
+    except Exception as e:
+        # mermaidx 渲染失败时回退到 Mermaid 源码
+        return f"(渲染失败: {e})\n\nMermaid 源码:\n{mermaid}"
+
+
+def _to_mermaid(net: Network) -> str:
+    """将网络转为 Mermaid 流程图语法"""
+    lines = ["graph TD"]
+    for pipe in net.pipes:
+        src = pipe.source
+        dst = pipe.target
+        lines.append(f"    {src} --> {dst}")
+    return "\n".join(lines)

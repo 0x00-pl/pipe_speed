@@ -7,6 +7,12 @@ packages = [{include = "pipe_speed", from = "src"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 
+[tool.poetry.group.visualize]
+optional = true
+
+[tool.poetry.group.visualize.dependencies]
+mermaidx = ">=0.8"
+
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
 
