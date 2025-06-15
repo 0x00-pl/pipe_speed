@@ -13,7 +13,7 @@ class Pipe:
     max_flow: float = 120.0  # 管道自身容量上限
 
     @property
-    def flow(self) -> float:
+    def flow(self):
         """实际流速 = min(supply, capacity)"""
         return min(self.supply, self.capacity)
 

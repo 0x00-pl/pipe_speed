@@ -173,7 +173,8 @@ def _load_text(text: str) -> tuple[Network, list[Query]]:
 
 
 def format_results(net: Network, iterations: int,
-                   queries: list[Query] | None = None) -> str:
+                   queries: list[Query] | None = None,
+                   fraction: bool = False) -> str:
     """格式化输出管道流速结果
 
     格式: 源节点 → 目标节点  :  流速
@@ -182,15 +183,25 @@ def format_results(net: Network, iterations: int,
         net: 已求解的网络
         iterations: 收敛迭代次数
         queries: 可选的输出过滤器列表
+        fraction: True 时使用精确分数格式 a/b
     """
     if queries is None:
         queries = []
+
+    from fractions import Fraction
 
     lines = []
     for pipe in net.pipes:
         if _match_any(queries, pipe.source, pipe.target):
             flow = pipe.flow
-            lines.append(f"{pipe.source} → {pipe.target}  :  {flow:.2f}")
+            if fraction:
+                if isinstance(flow, Fraction):
+                    f_str = f"{flow.numerator}/{flow.denominator}"
+                else:
+                    f_str = str(Fraction(flow).limit_denominator(10**8))
+                lines.append(f"{pipe.source} → {pipe.target}  :  {f_str}")
+            else:
+                lines.append(f"{pipe.source} → {pipe.target}  :  {float(flow):.2f}")
 
     result = "\n".join(lines) if lines else "(无匹配结果)"
 
@@ -203,9 +214,10 @@ def format_results(net: Network, iterations: int,
 
 
 def print_results(net: Network, iterations: int,
-                  queries: list[Query] | None = None) -> None:
+                  queries: list[Query] | None = None,
+                  fraction: bool = False) -> None:
     """打印结果到控制台"""
-    print(format_results(net, iterations, queries))
+    print(format_results(net, iterations, queries, fraction=fraction))
 
 
 def format_echo(net: Network, queries: list[Query] | None = None) -> str:

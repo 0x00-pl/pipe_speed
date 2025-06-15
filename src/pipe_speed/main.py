@@ -13,6 +13,17 @@ from .solver import solve
 SEP = "====== {} ======"
 
 
+def _total_inlet_flow(net) -> float:
+    """计算网络总入口流量（所有入口管道 flow 之和）"""
+    from .models import Inlet
+    total = 0.0
+    for name, comp in net.nodes.items():
+        if isinstance(comp, Inlet):
+            for pipe in net.out_edges[name]:
+                total += pipe.flow
+    return total
+
+
 def _read_input(filepath: str) -> str:
     if filepath == "-":
         raw = sys.stdin.read()
@@ -68,6 +79,10 @@ def main():
         help="回显解析后的网络内容"
     )
     parser.add_argument(
+        "--fraction", action="store_true",
+        help="以总入口流量的分数形式输出各管道流速"
+    )
+    parser.add_argument(
         "--json", action="store_true",
         help="以 JSON 格式输出结果"
     )
@@ -107,7 +122,8 @@ def main():
         print(render_network(net))
 
     # 求解
-    iterations = solve(net, epsilon=args.epsilon, max_iterations=args.max_iter)
+    iterations = solve(net, epsilon=args.epsilon, max_iterations=args.max_iter,
+                       use_fraction=args.fraction)
 
     # 输出
     if not args.json:
@@ -120,20 +136,25 @@ def main():
                 q.matches(p.source, p.target) for q in queries
             )
         ]
+        if args.fraction:
+            total_in = _total_inlet_flow(net)
+            scale = total_in if total_in > 0 else 1
+        else:
+            scale = 1
         result = {
             "iterations": iterations,
             "pipes": [
                 {
                     "source": p.source,
                     "target": p.target,
-                    "flow": round(p.flow, 6)
+                    "flow": float(p.flow) / float(scale)
                 }
                 for p in matching
             ]
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
-        print_results(net, iterations, queries)
+        print_results(net, iterations, queries, fraction=args.fraction)
 
 
 if __name__ == "__main__":

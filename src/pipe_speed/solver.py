@@ -2,44 +2,63 @@
 
 核心思想：每条管道维护两个独立变量 —— supply（上游想推的量）和 capacity（下游能接的量）。
 两者互不覆盖，flow = min(supply, capacity)。正向传播设置 supply，反向传播设置 capacity。
+
+支持两种数值类型：
+- float（默认）：浮点运算
+- Fraction（--fraction 模式）：精确有理数运算
 """
 
 import math
+from fractions import Fraction
+from typing import Union
 
 from .models import Pipe, Inlet, Outlet, Splitter, Merger, Limiter
 from .network import Network, topological_order
 
+# 数值类型
+Num = Union[float, Fraction]
 
-def fair_distribute(total: float, capacities: list[float]) -> tuple[list[float], float]:
-    """将 total 均分到 N 个输出，受各自 capacity 约束。
 
-    优先均分；若某路超出 capacity，截断并将超出量在其他路中再均分。
-    若全部满容，剩余流量返回（触发反压）。
+class _NumCtx:
+    """数值上下文：提供零、无穷、精度等类型相关的常量和方法"""
 
-    Args:
-        total: 待分配的总流量
-        capacities: 各输出口的容量上限列表
+    def __init__(self, use_fraction: bool):
+        self.use_fraction = use_fraction
+        if use_fraction:
+            self.ZERO: Num = Fraction(0, 1)
+            self.INF: Num = Fraction(10**20, 1)  # 足够大的"无穷"
+            self.EPS: Num = Fraction(1, 10**12)
+        else:
+            self.ZERO: Num = 0.0
+            self.INF: Num = float('inf')
+            self.EPS: Num = 1e-12
 
-    Returns:
-        (assigned, remaining): 分配结果列表 和 未分配的剩余量
-    """
+    def is_inf(self, val: Num) -> bool:
+        if self.use_fraction:
+            return val >= self.INF / 2
+        return math.isinf(float(val))
+
+    def inf_or(self, val: Num, default: Num) -> Num:
+        return default if self.is_inf(val) else val
+
+
+def fair_distribute(total: Num, capacities: list[Num],
+                    ctx: _NumCtx) -> tuple[list[Num], Num]:
+    """将 total 均分到 N 个输出，受各自 capacity 约束。"""
     n = len(capacities)
     if n == 0:
         return [], total
 
-    assigned = [0.0] * n
+    assigned = [ctx.ZERO] * n
     remaining = total
     active = set(range(n))
 
-    while remaining > 1e-12 and active:
+    while remaining > ctx.EPS and active:
         per_output = remaining / len(active)
-
-        # 找出本轮会超容的输出口
         capped = set()
         for i in active:
-            if per_output >= capacities[i] - assigned[i] - 1e-12:
+            if per_output >= capacities[i] - assigned[i] - ctx.EPS:
                 capped.add(i)
-
         if capped:
             for i in capped:
                 take = capacities[i] - assigned[i]
@@ -49,41 +68,28 @@ def fair_distribute(total: float, capacities: list[float]) -> tuple[list[float],
         else:
             for i in active:
                 assigned[i] += per_output
-            remaining = 0.0
+            remaining = ctx.ZERO
 
     return assigned, remaining
 
 
-def fair_draw(target: float, supplies: list[float]) -> tuple[list[float], float]:
-    """从 N 个输入中均抽 target 流量，受各自 supply 约束。
-
-    优先均抽；若某路 supply 不足，抽光并将缺口在其他路中再均抽。
-    若全部抽空，返回缺口（触发降流量）。
-
-    Args:
-        target: 期望抽取的总流量
-        supplies: 各输入口的可用供应量列表
-
-    Returns:
-        (drawn, shortfall): 抽取结果列表 和 未能满足的缺口
-    """
+def fair_draw(target: Num, supplies: list[Num],
+              ctx: _NumCtx) -> tuple[list[Num], Num]:
+    """从 N 个输入中均抽 target 流量，受各自 supply 约束。"""
     n = len(supplies)
     if n == 0:
         return [], target
 
-    drawn = [0.0] * n
+    drawn = [ctx.ZERO] * n
     needed = target
     active = set(range(n))
 
-    while needed > 1e-12 and active:
+    while needed > ctx.EPS and active:
         per_input = needed / len(active)
-
-        # 找出本轮会被抽空的输入口
         exhausted = set()
         for i in active:
-            if per_input >= supplies[i] - drawn[i] - 1e-12:
+            if per_input >= supplies[i] - drawn[i] - ctx.EPS:
                 exhausted.add(i)
-
         if exhausted:
             for i in exhausted:
                 take = supplies[i] - drawn[i]
@@ -93,182 +99,168 @@ def fair_draw(target: float, supplies: list[float]) -> tuple[list[float], float]
         else:
             for i in active:
                 drawn[i] += per_input
-            needed = 0.0
+            needed = ctx.ZERO
 
     return drawn, needed
 
 
-def _inf_or(val: float, default: float) -> float:
-    """若 val 为无穷大，返回 default；否则返回 val"""
-    if math.isinf(val):
-        return default
-    return val
-
-
-def push_supply(net: Network, order: list[str]) -> None:
-    """正向传播：按拓扑序，设置下游管道的 supply"""
+def _push_supply(net: Network, order: list[str], ctx: _NumCtx) -> None:
+    """正向传播"""
     for name in order:
         comp = net.nodes[name]
         in_pipes = net.in_edges[name]
         out_pipes = net.out_edges[name]
 
         if isinstance(comp, Inlet):
-            # 入口始终尝试推最大值
             for pipe in out_pipes:
-                pipe.supply = _inf_or(comp.max_flow, float('inf'))
+                pipe.supply = ctx.inf_or(comp.max_flow, ctx.INF)
 
         elif isinstance(comp, Outlet):
-            # 出口无下游管道，无操作
             pass
 
         elif isinstance(comp, Splitter):
-            # 读取来流
             incoming = in_pipes[0].supply
-            if math.isinf(comp.max_flow):
+            if ctx.is_inf(comp.max_flow):
                 available = incoming
             else:
                 available = min(incoming, comp.max_flow)
 
-            # 各输出口的容量 = min(管道自身上限, 下游接受能力)
             caps = [
-                min(_inf_or(p.max_flow, float('inf')),
-                    _inf_or(p.capacity, float('inf')))
+                min(ctx.inf_or(p.max_flow, ctx.INF),
+                    ctx.inf_or(p.capacity, ctx.INF))
                 for p in out_pipes
             ]
-
-            assigned, _ = fair_distribute(available, caps)
-
+            assigned, _ = fair_distribute(available, caps, ctx)
             for pipe, val in zip(out_pipes, assigned):
                 pipe.supply = val
 
         elif isinstance(comp, Merger):
-            # 求和所有入管的 supply
             total_available = sum(p.supply for p in in_pipes)
-
             downstream_pipe = out_pipes[0]
-            downstream_cap = _inf_or(downstream_pipe.capacity, float('inf'))
-
+            downstream_cap = ctx.inf_or(downstream_pipe.capacity, ctx.INF)
             output_supply = total_available
-            if not math.isinf(comp.max_flow):
+            if not ctx.is_inf(comp.max_flow):
                 output_supply = min(output_supply, comp.max_flow)
             output_supply = min(output_supply, downstream_cap)
-
             downstream_pipe.supply = output_supply
 
         elif isinstance(comp, Limiter):
             incoming = in_pipes[0].supply
             downstream_pipe = out_pipes[0]
-            downstream_cap = _inf_or(downstream_pipe.capacity, float('inf'))
-
+            downstream_cap = ctx.inf_or(downstream_pipe.capacity, ctx.INF)
             outgoing = incoming
-            if not math.isinf(comp.max_flow):
+            if not ctx.is_inf(comp.max_flow):
                 outgoing = min(outgoing, comp.max_flow)
             outgoing = min(outgoing, downstream_cap)
-
             downstream_pipe.supply = outgoing
 
 
-def pull_capacity(net: Network, rev_order: list[str]) -> None:
-    """反向传播：按逆拓扑序，设置上游管道的 capacity"""
+def _pull_capacity(net: Network, rev_order: list[str], ctx: _NumCtx) -> None:
+    """反向传播"""
     for name in rev_order:
         comp = net.nodes[name]
         in_pipes = net.in_edges[name]
         out_pipes = net.out_edges[name]
 
         if isinstance(comp, Inlet):
-            # 无上游管道，无操作
             pass
 
         elif isinstance(comp, Outlet):
-            # 出口始终尝试拉最大值
             for pipe in in_pipes:
-                pipe.capacity = _inf_or(comp.max_flow, float('inf'))
+                pipe.capacity = ctx.inf_or(comp.max_flow, ctx.INF)
 
         elif isinstance(comp, Splitter):
-            # 用实际分配量（supply），而非下游 capacity：
-            # 下游管道的 capacity 可能是 inf（被 outlet 设为无穷大），
-            # 但分流器实际能分配的量受各管道 max_flow 和下游元件接受能力约束。
-            # 使用当前轮 push_supply 分配的各出管 supply 之和，
-            # 反映分流器在当前约束下实际能输出的总量。
             total_out_supply = sum(p.supply for p in out_pipes)
             cap = total_out_supply
-            if not math.isinf(comp.max_flow):
+            if not ctx.is_inf(comp.max_flow):
                 cap = min(cap, comp.max_flow)
             in_pipes[0].capacity = min(
-                _inf_or(in_pipes[0].capacity, float('inf')), cap
+                ctx.inf_or(in_pipes[0].capacity, ctx.INF), cap
             )
 
         elif isinstance(comp, Merger):
-            downstream_cap = _inf_or(out_pipes[0].capacity, float('inf'))
+            downstream_cap = ctx.inf_or(out_pipes[0].capacity, ctx.INF)
             total_cap = downstream_cap
-            if not math.isinf(comp.max_flow):
+            if not ctx.is_inf(comp.max_flow):
                 total_cap = min(total_cap, comp.max_flow)
 
             supplies = [p.supply for p in in_pipes]
             total_supply = sum(supplies)
 
-            # 瓶颈判断：汇流器的总输出能力是否构成瓶颈
-            if math.isinf(total_cap) or total_cap >= total_supply - 1e-12:
-                # 不瓶颈：设置慷慨的 capacity，允许上游分流器溢出
+            if ctx.is_inf(total_cap) or total_cap >= total_supply - ctx.EPS:
                 for pipe in in_pipes:
                     pipe.capacity = min(
-                        _inf_or(pipe.capacity, float('inf')), total_cap
+                        ctx.inf_or(pipe.capacity, ctx.INF), total_cap
                     )
             else:
-                # 瓶颈：用 fair_draw 均分有限的输出能力
-                drawn, _ = fair_draw(total_cap, supplies)
+                drawn, _ = fair_draw(total_cap, supplies, ctx)
                 for pipe, val in zip(in_pipes, drawn):
                     pipe.capacity = min(
-                        _inf_or(pipe.capacity, float('inf')), val
+                        ctx.inf_or(pipe.capacity, ctx.INF), val
                     )
 
         elif isinstance(comp, Limiter):
-            outgoing_cap = _inf_or(out_pipes[0].capacity, float('inf'))
+            outgoing_cap = ctx.inf_or(out_pipes[0].capacity, ctx.INF)
             incoming_cap = outgoing_cap
-            if not math.isinf(comp.max_flow):
+            if not ctx.is_inf(comp.max_flow):
                 incoming_cap = min(incoming_cap, comp.max_flow)
             in_pipes[0].capacity = min(
-                _inf_or(in_pipes[0].capacity, float('inf')), incoming_cap
+                ctx.inf_or(in_pipes[0].capacity, ctx.INF), incoming_cap
             )
 
 
-def solve(net: Network, epsilon: float = 1e-9, max_iterations: int = 1000) -> int:
+def solve(net: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
+          use_fraction: bool = False) -> int:
     """求解管道网络的稳态流速
 
     Args:
         net: 已构建的网络
         epsilon: 收敛阈值
         max_iterations: 最大迭代次数
+        use_fraction: True 时求解后将结果转为 Fraction 精确分数
 
     Returns:
         实际迭代次数
     """
+    ctx = _NumCtx(use_fraction=False)  # 始终用 float 求解
+
     order = topological_order(net)
     rev_order = list(reversed(order))
 
-    # 初始化：所有管道 supply=0, capacity=inf（dataclass 默认值）
-
-    # 记录上一轮的 flow 用于收敛判断
-    prev_flows = [0.0] * len(net.pipes)
+    prev_flows = [float(p.flow) for p in net.pipes]
 
     for iteration in range(max_iterations):
-        # 正向传播
-        push_supply(net, order)
+        _push_supply(net, order, ctx)
+        _pull_capacity(net, rev_order, ctx)
 
-        # 反向传播
-        pull_capacity(net, rev_order)
-
-        # 收敛判断
         max_delta = 0.0
         for i, pipe in enumerate(net.pipes):
-            new_flow = pipe.flow
+            new_flow = float(pipe.flow)
             delta = abs(new_flow - prev_flows[i])
             if delta > max_delta:
                 max_delta = delta
             prev_flows[i] = new_flow
 
         if max_delta < epsilon:
-            return iteration + 1
+            break
 
-    # 达到最大迭代次数但未收敛，仍返回结果
-    return max_iterations
+    # Fraction 模式：将 float 结果转为精确分数
+    if use_fraction:
+        _floats_to_fractions(net)
+
+    return iteration + 1
+
+
+def _floats_to_fractions(net: Network) -> None:
+    """将求解后的 float 结果转为精确 Fraction（使用 limit_denominator）"""
+    for name, comp in net.nodes.items():
+        mf = comp.max_flow
+        if not isinstance(mf, Fraction) and mf != float('inf'):
+            comp.max_flow = Fraction(mf).limit_denominator(10**8)
+
+    for pipe in net.pipes:
+        # 流速：float → Fraction
+        pipe.supply = Fraction(float(pipe.supply)).limit_denominator(10**8)
+        pipe.capacity = Fraction(float(pipe.capacity)).limit_denominator(10**8)
+        if pipe.max_flow != float('inf') and not isinstance(pipe.max_flow, Fraction):
+            pipe.max_flow = Fraction(pipe.max_flow).limit_denominator(10**8)
