@@ -78,18 +78,19 @@ def build_network(nodes_data: dict | None = None, edges_data: list[dict] | None 
 
     net = Network()
 
-    # 第一遍：统计每个节点的出入边数
+    # 第一遍：统计每个节点的出入边数（使用 dict 保证确定性顺序）
     in_counts: dict[str, int] = {}
     out_counts: dict[str, int] = {}
 
-    # 从 edges 中收集所有出现的节点名
-    all_node_names: set[str] = set()
+    # 从 edges 中收集所有出现的节点名（用 dict 保持出现顺序，避免 set 不确定）
+    all_node_names: dict[str, None] = {}
     for edge in edges_data:
-        all_node_names.add(edge["from"])
-        all_node_names.add(edge["to"])
+        all_node_names[edge["from"]] = None
+        all_node_names[edge["to"]] = None
+    for name in nodes_data:
+        all_node_names[name] = None
 
-    # 合并显式声明的节点和从 edges 推导的节点
-    for name in all_node_names | set(nodes_data.keys()):
+    for name in all_node_names:
         in_counts[name] = 0
         out_counts[name] = 0
 
@@ -199,7 +200,7 @@ def topological_order(net: Network) -> list[str]:
 
     # 剩余节点在环内，按启发式排序：优先选入边来自已排节点的
     if len(order) < len(net.nodes):
-        remaining = set(net.nodes.keys()) - set(order)
+        remaining = [n for n in net.nodes if n not in order]
         while remaining:
             # 选"已排上游节点最多"的节点，尽量沿流向排列
             best = max(remaining, key=lambda n: sum(
