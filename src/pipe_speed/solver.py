@@ -1,10 +1,12 @@
-"""供需分离迭代求解器
+"""管道网络流速求解器
 
-每条管道维护 supply（上游想推）和 capacity（下游能接）两个独立变量。
-正向传播按拓扑序设置 supply，反向传播按逆拓扑序设置 capacity。
-所有内部集合使用确定性排序，消除迭代不稳定。
+每条管道维护 supply（上游推入）和 capacity（下游接受）。
+每轮迭代中，每个元件独立：
+  1. 求和输入 supply → 施加 max_flow → 得到当前 flow
+  2. 根据 flow 和输出 capacity，按输出逻辑更新输出管道的 supply
+  3. 根据 flow 和 max_flow，按输入逻辑（剩余均分）更新输入管道的 capacity
 
-对于含环网络：通过流入比例归一化解决多解问题。
+采用 Jacobi 风格：所有元件基于上轮快照独立计算，统一写入。
 """
 
 import math
@@ -15,273 +17,201 @@ from .models import Pipe, Inlet, Outlet, Splitter, Merger, Limiter
 from .network import Network, topological_order
 
 Num = Union[float, Fraction]
+INF = float('inf')
+EPS = 1e-12
 
 
-class _NumCtx:
-    def __init__(self):
-        self.ZERO: float = 0.0
-        self.INF: float = float('inf')
-        self.EPS: float = 1e-12
+# === 公平分配算法 ===
 
-    @staticmethod
-    def is_inf(val: float) -> bool:
-        return math.isinf(val)
-
-    @staticmethod
-    def inf_or(val: float, default: float) -> float:
-        return default if math.isinf(val) else val
-
-
-# === 确定性 fair 算法 ===
-
-def fair_distribute(total: float, capacities: list[float]) -> tuple[list[float], float]:
-    n = len(capacities)
+def fair_distribute(total: float, caps: list[float]) -> tuple[list[float], float]:
+    """均分 total 到 N 路，受 caps 约束，剩余返回"""
+    n = len(caps)
     if n == 0:
         return [], total
-    assigned = [0.0] * n
+    a = [0.0] * n
     remaining = total
     active = list(range(n))
-    eps = 1e-12
-    while remaining > eps and active:
+    while remaining > EPS and active:
         per = remaining / len(active)
-        capped = sorted(i for i in active
-                        if per >= capacities[i] - assigned[i] - eps)
+        capped = sorted(i for i in active if per >= caps[i] - a[i] - EPS)
         if capped:
             for i in capped:
-                take = capacities[i] - assigned[i]
-                assigned[i] = capacities[i]
+                take = caps[i] - a[i]
+                a[i] = caps[i]
                 remaining -= take
                 active.remove(i)
         else:
             for i in active:
-                assigned[i] += per
+                a[i] += per
             remaining = 0.0
-    return assigned, remaining
+    return a, remaining
 
 
 def fair_draw(target: float, supplies: list[float]) -> tuple[list[float], float]:
+    """均抽 target 从 N 路，受 supplies 约束，缺口返回"""
     n = len(supplies)
     if n == 0:
         return [], target
-    drawn = [0.0] * n
+    d = [0.0] * n
     needed = target
     active = list(range(n))
-    eps = 1e-12
-    while needed > eps and active:
+    while needed > EPS and active:
         per = needed / len(active)
-        exhausted = sorted(i for i in active
-                           if per >= supplies[i] - drawn[i] - eps)
+        exhausted = sorted(i for i in active if per >= supplies[i] - d[i] - EPS)
         if exhausted:
             for i in exhausted:
-                take = supplies[i] - drawn[i]
-                drawn[i] = supplies[i]
+                take = supplies[i] - d[i]
+                d[i] = supplies[i]
                 needed -= take
                 active.remove(i)
         else:
             for i in active:
-                drawn[i] += per
+                d[i] += per
             needed = 0.0
-    return drawn, needed
+    return d, needed
 
 
-# === 无约束传播（所有容量为无穷大）===
+# === 安全取值 ===
 
-def _propagate_unconstrained(net: Network, order: list[str],
-                             rev_order: list[str]) -> None:
-    """在无约束条件下传播流量，计算各管道的流量比例。
-
-    将入口 supply 设为 1，不设 capacity 限制，让流量自由传播。
-    结果中每条管道的 flow 代表该管道流量与总入口流量之比。
-    """
-    # 初始化：所有 supply=0, capacity=inf
-    for p in net.pipes:
-        p.supply = 0.0
-        p.capacity = float('inf')
-
-    # 找到入口，将第一条出管的 supply 设为 1
-    for name in net.nodes:
-        comp = net.nodes[name]
-        if isinstance(comp, Inlet):
-            for p in net.out_edges[name]:
-                p.supply = 1.0
-
-    # 迭代直到收敛（无约束下收敛很快）
-    for _ in range(200):
-        # 正向传播
-        for name in order:
-            comp = net.nodes[name]
-            in_p = net.in_edges[name]
-            out_p = net.out_edges[name]
-
-            if isinstance(comp, Inlet):
-                for p in out_p:
-                    p.supply = 1.0  # 保持入口为 1
-
-            elif isinstance(comp, Splitter):
-                incoming = in_p[0].supply
-                caps = [p.capacity for p in out_p]
-                assigned, _ = fair_distribute(incoming, caps)
-                for p, val in zip(out_p, assigned):
-                    p.supply = val
-
-            elif isinstance(comp, Merger):
-                total = sum(p.supply for p in in_p)
-                out_p[0].supply = total
-
-            elif isinstance(comp, Limiter):
-                in_p[0].supply = out_p[0].supply = in_p[0].supply
-                # 限流器在无约束模式下直通
-
-        # 反向传播：分流器反压
-        for name in rev_order:
-            comp = net.nodes[name]
-            in_p = net.in_edges[name]
-            out_p = net.out_edges[name]
-
-            if isinstance(comp, Splitter):
-                total_out = sum(p.supply for p in out_p)
-                in_p[0].capacity = min(in_p[0].capacity, total_out)
-
-        # 收敛判断
-        max_delta = 0.0
-        for p in net.pipes:
-            f = p.flow
-            # 用 supply 变化量判断
-            max_delta = max(max_delta, abs(p.supply - getattr(p, '_prev_s', 0.0)))
-            p._prev_s = p.supply
-        if max_delta < 1e-12:
-            break
+def _val(x: float) -> float:
+    return 0.0 if math.isinf(x) else x
 
 
-def _compute_total_inlet(net: Network) -> float:
-    """计算总入口流量"""
-    total = 0.0
-    for name, comp in net.nodes.items():
-        if isinstance(comp, Inlet):
-            for p in net.out_edges[name]:
-                total += p.flow
-    return total
+def _cap(x: float) -> float:
+    """capacity 安全值：inf → 很大数，用于比大小"""
+    return 1e30 if math.isinf(x) else x
 
 
-# === 约束求解器 ===
+# === 正向传播（推 supply）===
 
-def _push_supply(net: Network, order: list[str]) -> None:
-    ctx = _NumCtx()
-    for name in order:
-        comp = net.nodes[name]
-        in_p = net.in_edges[name]
-        out_p = net.out_edges[name]
+def _forward(net: Network, name: str) -> None:
+    """按用户算法：求和输入 supply → 输出逻辑设下游 supply"""
+    comp = net.nodes[name]
+    in_p = net.in_edges[name]
+    out_p = net.out_edges[name]
+    mf = comp.max_flow
 
-        if isinstance(comp, Inlet):
+    # 求 flow
+    total_in = sum(_val(p.supply) for p in in_p)
+    if math.isinf(mf):
+        flow = total_in
+    else:
+        flow = min(total_in, mf)
+
+    if isinstance(comp, Inlet):
+        flow = mf if not math.isinf(mf) else INF
+        if out_p:
+            each = flow / len(out_p)
             for p in out_p:
-                p.supply = ctx.inf_or(comp.max_flow, ctx.INF)
+                p.supply = each
 
-        elif isinstance(comp, Splitter):
-            incoming = in_p[0].supply
-            available = min(incoming, comp.max_flow) if not ctx.is_inf(comp.max_flow) else incoming
-            caps = [min(ctx.inf_or(p.max_flow, ctx.INF), p.capacity) for p in out_p]
-            assigned, _ = fair_distribute(available, caps)
-            for p, val in zip(out_p, assigned):
-                p.supply = val
+    elif isinstance(comp, Outlet):
+        pass  # 出口无下游
 
-        elif isinstance(comp, Merger):
-            total_available = sum(p.supply for p in in_p)
-            dp = out_p[0]
-            downstream_cap = ctx.inf_or(dp.capacity, ctx.INF)
-            out_supply = min(total_available, ctx.inf_or(comp.max_flow, total_available))
-            out_supply = min(out_supply, downstream_cap)
-            dp.supply = out_supply
+    elif isinstance(comp, Splitter):
+        if in_p:
+            flow = min(_val(in_p[0].supply), mf if not math.isinf(mf) else INF)
+        if out_p:
+            caps = [min(_cap(p.capacity), _cap(p.max_flow)) for p in out_p]
+            assigned, _ = fair_distribute(flow, caps)
+            for p, a in zip(out_p, assigned):
+                p.supply = a
 
-        elif isinstance(comp, Limiter):
-            incoming = in_p[0].supply
-            dp = out_p[0]
-            downstream_cap = ctx.inf_or(dp.capacity, ctx.INF)
-            outgoing = incoming
-            if not ctx.is_inf(comp.max_flow):
-                outgoing = min(outgoing, comp.max_flow)
-            outgoing = min(outgoing, downstream_cap)
-            dp.supply = outgoing
+    elif isinstance(comp, Merger):
+        if out_p:
+            out_p[0].supply = flow
+
+    elif isinstance(comp, Limiter):
+        if out_p:
+            out_p[0].supply = flow
 
 
-def _pull_capacity(net: Network, rev_order: list[str]) -> None:
-    ctx = _NumCtx()
-    for name in rev_order:
-        comp = net.nodes[name]
-        in_p = net.in_edges[name]
-        out_p = net.out_edges[name]
+# === 反向传播（拉 capacity）===
 
-        if isinstance(comp, Outlet):
+def _backward(net: Network, name: str) -> None:
+    """按用户算法：flow → 输入逻辑（剩余均分）设上游 capacity"""
+    comp = net.nodes[name]
+    in_p = net.in_edges[name]
+    out_p = net.out_edges[name]
+    mf = comp.max_flow
+
+    # 求 flow
+    total_in = sum(_val(p.supply) for p in in_p)
+    if math.isinf(mf):
+        flow = total_in
+    else:
+        flow = min(total_in, mf)
+
+    if isinstance(comp, Inlet):
+        pass  # 入口无上游
+
+    elif isinstance(comp, Outlet):
+        # 出口告知上游自己能接受的最大量（慷慨容量）
+        cap = mf if not math.isinf(mf) else INF
+        if in_p and cap < INF:
+            each = cap / len(in_p)
             for p in in_p:
-                p.capacity = ctx.inf_or(comp.max_flow, ctx.INF)
+                p.capacity = each
 
-        elif isinstance(comp, Splitter):
-            total_out = sum(p.supply for p in out_p)
-            cap = total_out
-            if not ctx.is_inf(comp.max_flow):
-                cap = min(cap, comp.max_flow)
-            in_p[0].capacity = min(ctx.inf_or(in_p[0].capacity, ctx.INF), cap)
+    elif isinstance(comp, Splitter):
+        if in_p and out_p:
+            # 实际能输出的总量 = sum(out supplies)（从正向 pass 来）
+            total_out = sum(_val(p.supply) for p in out_p)
+            cap = total_out if math.isinf(mf) else min(total_out, mf)
+            in_p[0].capacity = min(_cap(in_p[0].capacity), cap)
 
-        elif isinstance(comp, Merger):
-            downstream_cap = ctx.inf_or(out_p[0].capacity, ctx.INF)
-            total_cap = downstream_cap
-            if not ctx.is_inf(comp.max_flow):
-                total_cap = min(total_cap, comp.max_flow)
-            supplies = [p.supply for p in in_p]
+    elif isinstance(comp, Merger):
+        if in_p:
+            supplies = [_val(p.supply) for p in in_p]
             total_supply = sum(supplies)
-            if not ctx.is_inf(total_cap) and total_cap < total_supply - ctx.EPS:
+            # 瓶颈判断：输出能力 < 总供应？
+            downstream_cap = _cap(out_p[0].capacity) if out_p else INF
+            total_cap = min(mf if not math.isinf(mf) else INF, downstream_cap)
+            if not math.isinf(total_cap) and total_cap < total_supply - EPS:
+                # 瓶颈：fair_draw 均抽
                 drawn, _ = fair_draw(total_cap, supplies)
-                for p, val in zip(in_p, drawn):
-                    p.capacity = min(ctx.inf_or(p.capacity, ctx.INF), val)
+                for p, d in zip(in_p, drawn):
+                    p.capacity = min(_cap(p.capacity), d)
             else:
-                # 非瓶颈：慷慨容量（允许分流器溢出）
+                # 非瓶颈：慷慨容量，允许上游分流器溢出
                 for p in in_p:
-                    p.capacity = min(ctx.inf_or(p.capacity, ctx.INF), total_cap)
+                    p.capacity = min(_cap(p.capacity), total_cap)
 
-        elif isinstance(comp, Limiter):
-            outgoing_cap = ctx.inf_or(out_p[0].capacity, ctx.INF)
-            incoming_cap = outgoing_cap
-            if not ctx.is_inf(comp.max_flow):
-                incoming_cap = min(incoming_cap, comp.max_flow)
-            in_p[0].capacity = min(ctx.inf_or(in_p[0].capacity, ctx.INF), incoming_cap)
+    elif isinstance(comp, Limiter):
+        if in_p:
+            c_out = _cap(out_p[0].capacity) if out_p else INF
+            cap = min(mf if not math.isinf(mf) else INF, c_out)
+            in_p[0].capacity = min(_cap(in_p[0].capacity), cap)
 
+
+# === 求解器 ===
 
 def solve(net: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
           use_fraction: bool = False) -> int:
+    """Gauss-Seidel 风格迭代求解
+
+    按拓扑序遍历元件，读即时管道状态，写即时管道状态。
+    每个元件处理所有相连管道的 supply/capacity 更新。
+    """
     order = topological_order(net)
     rev_order = list(reversed(order))
 
+    # 初始化：打破零不动点（用户算法要求初始值为 1）
+    for p in net.pipes:
+        p.supply = 1.0
+
     prev_flows = [float(p.flow) for p in net.pipes]
 
-    # 阶段 1：无约束传播求流量比例
-    _propagate_unconstrained(net, order, rev_order)
-
-    # 阶段 2：根据比例和总入口流量，按入口约束缩放
-    total_inlet = _compute_total_inlet(net)
-    scale = 1.0
-    if total_inlet > 0:
-        # 计算入口能提供的最大总流量
-        max_total = 0.0
-        for name, comp in net.nodes.items():
-            if isinstance(comp, Inlet):
-                max_total += comp.max_flow if not math.isinf(comp.max_flow) else float('inf')
-        if not math.isinf(max_total) and total_inlet > max_total:
-            scale = max_total / total_inlet
-
-    # 按比例缩放所有管道流量
-    for p in net.pipes:
-        p.supply *= scale
-        p.capacity = float('inf')  # 重置
-    # 重新设置入口 supply
-    for name, comp in net.nodes.items():
-        if isinstance(comp, Inlet):
-            for p in net.out_edges[name]:
-                p.supply = min(comp.max_flow, p.supply) if not math.isinf(comp.max_flow) else p.supply
-
-    # 阶段 3：有约束迭代（处理硬容量限制）
     for iteration in range(max_iterations):
-        _push_supply(net, order)
-        _pull_capacity(net, rev_order)
+        # 正向 pass：沿流向推 supply
+        for name in order:
+            _forward(net, name)
 
+        # 反向 pass：逆流向拉 capacity
+        for name in rev_order:
+            _backward(net, name)
+
+        # 收敛判断
         max_delta = 0.0
         for i, p in enumerate(net.pipes):
             new_flow = float(p.flow)
@@ -294,12 +224,8 @@ def solve(net: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
             break
 
     if use_fraction:
-        _floats_to_fractions(net)
+        for p in net.pipes:
+            p.supply = Fraction(float(p.supply)).limit_denominator(10**8)
+            p.capacity = Fraction(float(p.capacity)).limit_denominator(10**8)
 
     return iteration + 1
-
-
-def _floats_to_fractions(net: Network) -> None:
-    for pipe in net.pipes:
-        pipe.supply = Fraction(float(pipe.supply)).limit_denominator(10**8)
-        pipe.capacity = Fraction(float(pipe.capacity)).limit_denominator(10**8)
