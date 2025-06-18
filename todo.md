@@ -36,3 +36,39 @@ TODO:
 
 
 
+计算flow:
+flow = sum(i.supply for i in inputs)
+flow = min(self.max_flow, flow)
+
+计算capacity:
+flow = self.max_flow
+s = [i.supply for i in self.inputs]
+for i in self.inputs:
+  i.capacity = 0
+
+e = min(i.supply for i in s)
+f = min(e*len(s), flow)
+flow -= f
+for i in still_in_s(self.inputs):
+  i.capacity += f/len(s)
+
+s[:] -= f/len(s)
+# pop all 0 value element in s[]
+# loop until len(s) == 0 or flow == 0
+
+
+计算supply:
+flow = current_flow
+c = [i.capacity for i in self.outputs]
+for i in self.outputs:
+  i.supply = 0
+
+e = min(i.capacity for i in c)
+f = min(e*len[c], flow)
+flow -= f
+for i in still_in_c(self.outputs):
+  i.supply += f/len(c)
+
+c[:] -= f/len(c)
+# pop all 0 value element in c[]
+# loop until len(c) == 0 or flow == 0 
