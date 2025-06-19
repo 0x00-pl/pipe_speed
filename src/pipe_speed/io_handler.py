@@ -189,6 +189,15 @@ def format_results(net: Network, iterations: int,
         queries = []
 
     from fractions import Fraction
+    from .models import Inlet
+
+    # 总入口流量（用于计算比例）
+    total_in = Fraction(0, 1)
+    for name, comp in net.nodes.items():
+        if isinstance(comp, Inlet):
+            for pipe in net.out_edges[name]:
+                f = pipe.flow
+                total_in += f if isinstance(f, Fraction) else Fraction(f).limit_denominator(10**8)
 
     lines = []
     for pipe in net.pipes:
@@ -199,7 +208,14 @@ def format_results(net: Network, iterations: int,
                     f_str = f"{flow.numerator}/{flow.denominator}"
                 else:
                     f_str = str(Fraction(flow).limit_denominator(10**8))
-                lines.append(f"{pipe.source} → {pipe.target}  :  {f_str}")
+                # 相对于满速（总入口流量）的比例
+                if total_in > 0:
+                    f_val = flow if isinstance(flow, Fraction) else Fraction(flow).limit_denominator(10**8)
+                    ratio = f_val / total_in
+                    r_str = f"{ratio.numerator}/{ratio.denominator}"
+                    lines.append(f"{pipe.source} → {pipe.target}  :  {f_str}  ({r_str})")
+                else:
+                    lines.append(f"{pipe.source} → {pipe.target}  :  {f_str}")
             else:
                 lines.append(f"{pipe.source} → {pipe.target}  :  {float(flow):.2f}")
 
