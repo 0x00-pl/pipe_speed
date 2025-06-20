@@ -8,8 +8,8 @@ class Pipe:
     """管道（图的边）：连接两个元件的流体通道"""
     source: str            # 上游节点名
     target: str            # 下游节点名
-    supply: float = 0.0    # 上游元件想推的量（正向传播设置）
-    capacity: float = float('inf')  # 下游元件能接的量（反向传播设置）
+    supply: float = 120.0  # 上游元件想推的量
+    capacity: float = 120.0  # 下游元件能接的量
     max_flow: float = 120.0  # 管道自身容量上限
 
     @property

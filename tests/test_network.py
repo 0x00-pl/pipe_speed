@@ -157,13 +157,12 @@ class TestComplexNetwork:
                 {"from": "mg", "to": "b"},
             ]
         )
-        # 分流器入 100，均分：限流路 50 被截为 20，汇流路 50
+        # 分流器入 70（被汇流器均抽反压），限流路 20，汇流路 50
         assert _flow(net, "sp", "lim") == pytest.approx(20)
-        assert _flow(net, "sp", "mg") == pytest.approx(80)
-        # 溢出的 30 重新分配到汇流路
-        # 汇流器：sp 来 80，in2 来 10，总 90
+        assert _flow(net, "sp", "mg") == pytest.approx(50)
+        # 汇流器 even-draw: sp 50, in2 10 → 总 60
         assert _flow(net, "in2", "mg") == pytest.approx(10)
-        assert _flow(net, "mg", "b") == pytest.approx(90)
+        assert _flow(net, "mg", "b") == pytest.approx(60)
 
     def test_pipe_capacity_limits_split(self):
         """管道自身 max_flow 限制分流"""
