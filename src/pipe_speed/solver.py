@@ -6,22 +6,10 @@
   3. pull capacity: 从 max_flow 均抽输入 → 设输入管道 capacity
 """
 
-import math
 from fractions import Fraction
 
 from .models import Pipe, Inlet, Outlet, Splitter, Merger, Limiter
 from .network import Network
-
-INF = float('inf')
-EPS = 1e-12
-
-
-def _safe_val(value: float) -> float:
-    return 0.0 if math.isinf(value) else value
-
-
-def _safe_cap(value: float) -> float:
-    return 1e30 if math.isinf(value) else value
 
 
 def draw_capacity(max_flow: float, pipes: list[Pipe]) -> None:
@@ -31,20 +19,17 @@ def draw_capacity(max_flow: float, pipes: list[Pipe]) -> None:
     for pipe in pipes:
         pipe.capacity = 0.0
     supplies = {id(p): max(p.supply, 0.0) for p in pipes}
-    remaining_flow = max_flow if not math.isinf(max_flow) else INF
+    remaining_flow = max_flow
     active = list(pipes)
-    while remaining_flow > EPS and active:
+    while remaining_flow > 0.0 and active:
         min_supply = min(supplies[id(p)] for p in active)
-        if min_supply <= EPS:
-            active = [p for p in active if supplies[id(p)] > EPS]
-            continue
         draw = min(min_supply * len(active), remaining_flow)
         remaining_flow -= draw
         per_pipe = draw / len(active)
         for pipe in list(active):
             pipe.capacity += per_pipe
             supplies[id(pipe)] -= per_pipe
-            if supplies[id(pipe)] <= EPS:
+            if supplies[id(pipe)] <= 0.0:
                 active.remove(pipe)
 
 
@@ -54,22 +39,18 @@ def push_supply(current_flow: float, pipes: list[Pipe]) -> None:
         return
     for pipe in pipes:
         pipe.supply = 0.0
-    capacities = {id(p): min(_safe_cap(p.capacity), _safe_cap(p.max_flow))
-                  for p in pipes}
-    remaining_flow = current_flow if not math.isinf(current_flow) else INF
+    capacities = {id(p): min(p.capacity, p.max_flow) for p in pipes}
+    remaining_flow = current_flow
     active = list(pipes)
-    while remaining_flow > EPS and active:
+    while remaining_flow > 0.0 and active:
         min_cap = min(capacities[id(p)] for p in active)
-        if min_cap <= EPS:
-            active = [p for p in active if capacities[id(p)] > EPS]
-            continue
         push = min(min_cap * len(active), remaining_flow)
         remaining_flow -= push
         per_pipe = push / len(active)
         for pipe in list(active):
             pipe.supply += per_pipe
             capacities[id(pipe)] -= per_pipe
-            if capacities[id(pipe)] <= EPS:
+            if capacities[id(pipe)] <= 0.0:
                 active.remove(pipe)
 
 
@@ -92,47 +73,40 @@ def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
 
             if isinstance(component, Inlet):
                 if outputs:
-                    flow = max_flow if not math.isinf(max_flow) else INF
-                    push_supply(flow, outputs)
+                    push_supply(max_flow, outputs)
 
             elif isinstance(component, Outlet):
                 if inputs:
-                    capacity = max_flow if not math.isinf(max_flow) else INF
-                    if capacity < INF:
-                        for pipe in inputs:
-                            pipe.capacity = capacity
+                    for pipe in inputs:
+                        pipe.capacity = max_flow
 
             elif isinstance(component, Splitter):
-                total_input = sum(_safe_val(p.supply) for p in inputs)
-                flow = min(total_input, max_flow if not math.isinf(max_flow) else INF)
+                total_input = sum(p.supply for p in inputs)
+                flow = min(total_input, max_flow)
                 if outputs:
                     push_supply(flow, outputs)
                 if inputs:
-                    total_output = sum(_safe_val(p.supply) for p in outputs)
-                    capacity_limit = total_output if math.isinf(max_flow) else min(total_output, max_flow)
-                    draw_capacity(capacity_limit, inputs)
+                    total_output = sum(p.supply for p in outputs)
+                    draw_capacity(min(total_output, max_flow), inputs)
 
             elif isinstance(component, Merger):
-                total_input = sum(_safe_val(p.supply) for p in inputs)
-                flow = min(total_input, max_flow if not math.isinf(max_flow) else INF)
+                total_input = sum(p.supply for p in inputs)
+                flow = min(total_input, max_flow)
                 if outputs:
-                    downstream_cap = min(_safe_cap(p.capacity) for p in outputs)
-                    flow = min(flow, downstream_cap)
+                    flow = min(flow, min(p.capacity for p in outputs))
                     push_supply(flow, outputs)
                 if inputs:
                     draw_capacity(max_flow, inputs)
 
             elif isinstance(component, Limiter):
-                total_input = sum(_safe_val(p.supply) for p in inputs)
-                flow = min(total_input, max_flow if not math.isinf(max_flow) else INF)
+                total_input = sum(p.supply for p in inputs)
+                flow = min(total_input, max_flow)
                 if outputs:
-                    downstream_cap = min(_safe_cap(p.capacity) for p in outputs)
-                    flow = min(flow, downstream_cap)
+                    flow = min(flow, min(p.capacity for p in outputs))
                     push_supply(flow, outputs)
                 if inputs:
-                    downstream_cap = min(_safe_cap(p.capacity) for p in outputs) if outputs else INF
-                    capacity_limit = max_flow if math.isinf(max_flow) else min(max_flow, downstream_cap)
-                    draw_capacity(capacity_limit, inputs)
+                    downstream_cap = min(p.capacity for p in outputs) if outputs else max_flow
+                    draw_capacity(min(max_flow, downstream_cap), inputs)
 
         max_delta = 0.0
         for i, pipe in enumerate(network.pipes):
