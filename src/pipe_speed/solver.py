@@ -83,7 +83,8 @@ def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
 
             if isinstance(component, Inlet):
                 if outputs:
-                    push_supply(max_flow, outputs)
+                    for pipe in outputs:
+                        pipe.supply = max_flow
 
             elif isinstance(component, Outlet):
                 if inputs:
@@ -105,7 +106,7 @@ def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
                 if outputs:
                     push_supply(flow, outputs)
                 if inputs:
-                    draw_capacity(flow, inputs)
+                    draw_capacity(max_flow, inputs)
 
             elif isinstance(component, Limiter):
                 total_input = sum(p.supply for p in inputs)
