@@ -174,37 +174,38 @@ def validate(net: Network) -> None:
             if out_count != 1:
                 raise ValueError(f"限流器 '{name}': 需要恰好 1 条出边，实际 {out_count}")
 
-def topological_order(net: Network) -> list[str]:
+def topological_order(net: Network, reverse: bool = False) -> list[str]:
     """返回节点顺序（Kahn 拓扑排序，兼容含环图）
 
-    对 DAG：返回标准拓扑序。
-    对含环图：先排 DAG 部分（零入度节点），剩余环内节点按名称
-    排序追加。迭代求解器对顺序不敏感（单调不动点迭代必定收敛），
-    拓扑序仅影响收敛速度。
+    reverse=False: 标准拓扑序（入度零优先）
+    reverse=True:  反向拓扑序（出度零优先）
     """
-    in_degree: dict[str, int] = {}
-    for name in net.nodes:
-        in_degree[name] = len(net.in_edges[name])
+    if not reverse:
+        degree = {name: len(net.in_edges[name]) for name in net.nodes}
+        queue = [n for n, d in degree.items() if d == 0]
+        neighbours = lambda n: [p.target for p in net.out_edges[n]]
+        upstream_attr = 'source'
+    else:
+        degree = {name: len(net.out_edges[name]) for name in net.nodes}
+        queue = [n for n, d in degree.items() if d == 0]
+        neighbours = lambda n: [p.source for p in net.in_edges[n]]
+        upstream_attr = 'target'
 
-    queue = [name for name, deg in in_degree.items() if deg == 0]
     order = []
-
     while queue:
         node = queue.pop(0)
         order.append(node)
-        for pipe in net.out_edges[node]:
-            neighbor = pipe.target
-            in_degree[neighbor] -= 1
-            if in_degree[neighbor] == 0:
+        for neighbor in neighbours(node):
+            degree[neighbor] -= 1
+            if degree[neighbor] == 0:
                 queue.append(neighbor)
 
-    # 剩余节点在环内，按启发式排序：优先选入边来自已排节点的
     if len(order) < len(net.nodes):
         remaining = [n for n in net.nodes if n not in order]
         while remaining:
-            # 选"已排上游节点最多"的节点，尽量沿流向排列
             best = max(remaining, key=lambda n: sum(
-                1 for p in net.in_edges[n] if p.source in order
+                1 for p in net.in_edges[n]
+                if getattr(p, upstream_attr) in order
             ))
             order.append(best)
             remaining.remove(best)

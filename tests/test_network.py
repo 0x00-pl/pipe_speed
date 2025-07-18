@@ -157,7 +157,7 @@ class TestComplexNetwork:
                 {"from": "mg", "to": "b"},
             ]
         )
-        # 分流器入 80，限流路 20，汇流路 60
+        # 分流器入 80，限流路 20，汇流路 60（硬均分 120/2=60）
         assert _flow(net, "sp", "lim") == pytest.approx(20)
         assert _flow(net, "sp", "mg") == pytest.approx(60)
         assert _flow(net, "in2", "mg") == pytest.approx(10)
