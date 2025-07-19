@@ -1,6 +1,6 @@
 """管道网络流速求解器
 
-每轮迭代遍历所有元件，即时读写管道。
+每轮迭代: capacity pass(逆拓扑) → supply pass(正拓扑)。
 """
 
 from fractions import Fraction
@@ -51,6 +51,81 @@ def push_supply(current_flow, pipes: list[Pipe]) -> None:
                 active.remove(pipe)
 
 
+def validate(network: Network) -> list[str]:
+    """验证网络的守恒性和分配逻辑，返回问题列表"""
+    issues = []
+    eps = 1e-6
+
+    for name, comp in network.nodes.items():
+        inputs = network.in_edges[name]
+        outputs = network.out_edges[name]
+        total_in = sum(p.flow for p in inputs)
+        total_out = sum(p.flow for p in outputs)
+
+        if isinstance(comp, Inlet):
+            if total_in != 0:
+                issues.append(f"[{name}] 入口入流应为0，实际 {total_in:.4f}")
+            if outputs and total_out < eps:
+                issues.append(f"[{name}] 入口无输出")
+
+        elif isinstance(comp, Outlet):
+            if total_out != 0:
+                issues.append(f"[{name}] 出口出流应为0，实际 {total_out:.4f}")
+            if inputs and total_in < eps:
+                issues.append(f"[{name}] 出口无输入")
+            # 出口应设慷慨容量
+            for pipe in inputs:
+                if abs(pipe.capacity - comp.max_flow) > eps:
+                    issues.append(f"[{name}] 出口应设 capacity={comp.max_flow}，实际 {pipe.capacity:.4f}")
+
+        elif isinstance(comp, Splitter):
+            if abs(total_in - total_out) > eps:
+                issues.append(f"[{name}] 分流器不守恒: in={total_in:.4f} out={total_out:.4f}")
+            if inputs and len(inputs) != 1:
+                issues.append(f"[{name}] 分流器应有1入，实际 {len(inputs)}")
+            if outputs and len(outputs) > 3:
+                issues.append(f"[{name}] 分流器最多3出，实际 {len(outputs)}")
+            # 输入容量应 = sum(输出流)
+            if inputs and outputs:
+                expected_cap = min(sum(p.flow for p in outputs), comp.max_flow)
+                draw_capacity(expected_cap, inputs)
+                actual_cap = inputs[0].capacity
+                if abs(actual_cap - expected_cap) > eps:
+                    issues.append(f"[{name}] 入管容量 {actual_cap:.4f} ≠ Σ出流 {expected_cap:.4f}")
+
+        elif isinstance(comp, Merger):
+            if abs(total_in - total_out) > eps:
+                issues.append(f"[{name}] 汇流器不守恒: in={total_in:.4f} out={total_out:.4f}")
+            if outputs and len(outputs) != 1:
+                issues.append(f"[{name}] 汇流器应有1出，实际 {len(outputs)}")
+            if inputs and len(inputs) > 3:
+                issues.append(f"[{name}] 汇流器最多3入，实际 {len(inputs)}")
+            # 入管容量应均等或受限
+            if inputs and len(inputs) >= 2:
+                caps = [p.capacity for p in inputs]
+                max_cap = max(caps)
+                min_cap = min(caps)
+                if max_cap - min_cap > eps:
+                    # 允许不均等(供给不足)，但不超出 max_flow/N
+                    fair = comp.max_flow / len(inputs)
+                    for i, pipe in enumerate(inputs):
+                        if pipe.capacity > fair + eps:
+                            issues.append(f"[{name}] 入{i}容量 {pipe.capacity:.4f} > 公平份额 {fair:.4f}")
+
+        elif isinstance(comp, Limiter):
+            if abs(total_in - total_out) > eps:
+                issues.append(f"[{name}] 限流器不守恒: in={total_in:.4f} out={total_out:.4f}")
+            if inputs and len(inputs) != 1:
+                issues.append(f"[{name}] 限流器应有1入，实际 {len(inputs)}")
+            if outputs and len(outputs) != 1:
+                issues.append(f"[{name}] 限流器应有1出，实际 {len(outputs)}")
+            # 流量不应超过 max_flow
+            if total_in > comp.max_flow + eps:
+                issues.append(f"[{name}] 限流器流量 {total_in:.4f} > max_flow {comp.max_flow}")
+
+    return issues
+
+
 def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
           use_fraction: bool = False) -> int:
     if use_fraction:
@@ -69,7 +144,7 @@ def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
     previous_flows = [pipe.flow for pipe in network.pipes]
 
     for iteration in range(max_iterations):
-        # --- capacity pass: 出→入，均抽设上游 capacity ---
+        # --- capacity pass: 出→入 ---
         for name in rev_order:
             component = network.nodes[name]
             inputs = network.in_edges[name]
@@ -87,7 +162,8 @@ def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
                     draw_capacity(min(total_output, max_flow), inputs)
             elif isinstance(component, Merger):
                 if inputs:
-                    draw_capacity(max_flow, inputs)
+                    downstream_cap = min(p.capacity for p in outputs) if outputs else max_flow
+                    draw_capacity(min(max_flow, downstream_cap), inputs)
             elif isinstance(component, Limiter):
                 if inputs:
                     flow = min(p.flow for p in inputs) if inputs else max_flow
@@ -96,7 +172,7 @@ def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
                         flow = min(flow, min(p.capacity for p in outputs))
                     draw_capacity(flow, inputs)
 
-        # --- supply pass: 入→出，推流设下游 supply ---
+        # --- supply pass: 入→出 ---
         for name in order:
             component = network.nodes[name]
             inputs = network.in_edges[name]
