@@ -7,21 +7,10 @@ import argparse
 import sys
 from pathlib import Path
 
-from .io_handler import load_network, print_results, render_network, format_echo
+from .io_handler import load_network, print_results, format_echo
 from .solver import solve
 
 SEP = "====== {} ======"
-
-
-def _total_inlet_flow(net) -> float:
-    """计算网络总入口流量（所有入口管道 flow 之和）"""
-    from .models import Inlet
-    total = 0.0
-    for name, comp in net.nodes.items():
-        if isinstance(comp, Inlet):
-            for pipe in net.out_edges[name]:
-                total += pipe.flow
-    return total
 
 
 def _read_input(filepath: str) -> str:
@@ -116,9 +105,10 @@ def main():
         print(SEP.format("输入"))
         print(format_echo(net, queries))
 
-    # --show: 显示拓扑图后继续求解
+    # --show: 显示拓扑图（需 mermaidx）
     if args.show:
         print(SEP.format("拓扑"))
+        from .io_handler import render_network
         print(render_network(net))
 
     # 求解
