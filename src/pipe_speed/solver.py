@@ -9,46 +9,44 @@ from .models import Pipe, Inlet, Outlet, Splitter, Merger, Limiter
 from .network import Network, topological_order
 
 
+def _fair_allocate(total, limits: list) -> list:
+    """均分 total 到 N 路，受 limits 约束。limits 耗尽时重分配给剩余路。"""
+    if not limits:
+        return []
+    zero = type(total)(0)
+    allocated = [zero] * len(limits)
+    remaining_limits = [max(limit, zero) for limit in limits]
+    remaining_total = total
+    active = list(range(len(limits)))
+    while remaining_total > zero and active:
+        min_limit = min(remaining_limits[i] for i in active)
+        batch = min(min_limit * len(active), remaining_total)
+        remaining_total -= batch
+        per_item = batch / len(active)
+        for i in list(active):
+            allocated[i] += per_item
+            remaining_limits[i] -= per_item
+            if remaining_limits[i] <= zero:
+                active.remove(i)
+    return allocated
+
+
 def draw_capacity(max_flow, pipes: list[Pipe]) -> None:
     if not pipes:
         return
-    zero = type(max_flow)(0)
-    for pipe in pipes:
-        pipe.capacity = zero
-    supplies = {id(p): max(p.supply, zero) for p in pipes}
-    remaining = max_flow
-    active = list(pipes)
-    while remaining > zero and active:
-        min_supply = min(supplies[id(p)] for p in active)
-        draw = min(min_supply * len(active), remaining)
-        remaining -= draw
-        per_pipe = draw / len(active)
-        for pipe in list(active):
-            pipe.capacity += per_pipe
-            supplies[id(pipe)] -= per_pipe
-            if supplies[id(pipe)] <= zero:
-                active.remove(pipe)
+    limits = [max(p.supply, type(max_flow)(0)) for p in pipes]
+    allocated = _fair_allocate(max_flow, limits)
+    for pipe, value in zip(pipes, allocated):
+        pipe.capacity = value
 
 
 def push_supply(current_flow, pipes: list[Pipe]) -> None:
     if not pipes:
         return
-    zero = type(current_flow)(0)
-    for pipe in pipes:
-        pipe.supply = zero
-    capacities = {id(p): min(p.capacity, p.max_flow) for p in pipes}
-    remaining = current_flow
-    active = list(pipes)
-    while remaining > zero and active:
-        min_cap = min(capacities[id(p)] for p in active)
-        push = min(min_cap * len(active), remaining)
-        remaining -= push
-        per_pipe = push / len(active)
-        for pipe in list(active):
-            pipe.supply += per_pipe
-            capacities[id(pipe)] -= per_pipe
-            if capacities[id(pipe)] <= zero:
-                active.remove(pipe)
+    limits = [min(p.capacity, p.max_flow) for p in pipes]
+    allocated = _fair_allocate(current_flow, limits)
+    for pipe, value in zip(pipes, allocated):
+        pipe.supply = value
 
 
 def validate(network: Network) -> list[str]:
@@ -85,6 +83,13 @@ def validate(network: Network) -> list[str]:
                 issues.append(f"[{name}] 分流器应有1入，实际 {len(inputs)}")
             if outputs and len(outputs) > 3:
                 issues.append(f"[{name}] 分流器最多3出，实际 {len(outputs)}")
+            # 输出分配验证
+            if outputs and total_in > 0:
+                limits = [min(p.capacity, p.max_flow) for p in outputs]
+                expected = _fair_allocate(min(total_in, component.max_flow), limits)
+                for i, pipe in enumerate(outputs):
+                    if abs(pipe.supply - expected[i]) > tolerance:
+                        issues.append(f"[{name}] 出{i} supply={pipe.supply:.4f} ≠ 期望 {expected[i]:.4f}")
             # 输入容量应 = sum(输出流)
             if inputs and outputs:
                 expected_cap = min(sum(p.flow for p in outputs), component.max_flow)
