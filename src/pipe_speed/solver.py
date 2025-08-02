@@ -63,13 +63,13 @@ def validate(network: Network) -> list[str]:
         if isinstance(component, Inlet):
             if total_in != 0:
                 issues.append(f"[{name}] 入口入流应为0，实际 {total_in:.4f}")
-            if outputs and total_out < eps:
+            if outputs and total_out < tolerance:
                 issues.append(f"[{name}] 入口无输出")
 
         elif isinstance(component, Outlet):
             if total_out != 0:
                 issues.append(f"[{name}] 出口出流应为0，实际 {total_out:.4f}")
-            if inputs and total_in < eps:
+            if inputs and total_in < tolerance:
                 issues.append(f"[{name}] 出口无输入")
             # 出口应设慷慨容量
             for pipe in inputs:
@@ -114,7 +114,7 @@ def validate(network: Network) -> list[str]:
                     # 允许不均等(供给不足)，但不超出 max_flow/N
                     fair = component.max_flow / len(inputs)
                     for i, pipe in enumerate(inputs):
-                        if pipe.capacity > fair + eps:
+                        if pipe.capacity > fair + tolerance:
                             issues.append(f"[{name}] 入{i}容量 {pipe.capacity:.4f} > 公平份额 {fair:.4f}")
 
         elif isinstance(component, Limiter):
