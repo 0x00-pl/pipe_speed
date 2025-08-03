@@ -223,8 +223,8 @@ def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
 
 
 def _to_fraction(network: Network) -> None:
-    for comp in network.nodes.values():
-        component.max_flow = Fraction(component.max_flow).limit_denominator(10**12)
+    for node in network.nodes.values():
+        node.max_flow = Fraction(node.max_flow).limit_denominator(10**12)
     for pipe in network.pipes:
         pipe.max_flow = Fraction(pipe.max_flow).limit_denominator(10**12)
 
