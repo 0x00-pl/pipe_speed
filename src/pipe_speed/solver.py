@@ -90,13 +90,11 @@ def validate(network: Network) -> list[str]:
                 for i, pipe in enumerate(outputs):
                     if abs(pipe.supply - expected[i]) > tolerance:
                         issues.append(f"[{name}] 出{i} supply={pipe.supply:.4f} ≠ 期望 {expected[i]:.4f}")
-            # 输入容量应 = sum(输出流)
+            # 输入容量反压验证
             if inputs and outputs:
                 expected_cap = min(sum(p.flow for p in outputs), component.max_flow)
-                draw_capacity(expected_cap, inputs)
-                actual_cap = inputs[0].capacity
-                if abs(actual_cap - expected_cap) > tolerance:
-                    issues.append(f"[{name}] 入管容量 {actual_cap:.4f} ≠ Σ出流 {expected_cap:.4f}")
+                if inputs[0].capacity > expected_cap + tolerance:
+                    issues.append(f"[{name}] 入管容量 {inputs[0].capacity:.4f} > Σ出流 {expected_cap:.4f}")
 
         elif isinstance(component, Merger):
             if abs(total_in - total_out) > tolerance:
@@ -105,17 +103,15 @@ def validate(network: Network) -> list[str]:
                 issues.append(f"[{name}] 汇流器应有1出，实际 {len(outputs)}")
             if inputs and len(inputs) > 3:
                 issues.append(f"[{name}] 汇流器最多3入，实际 {len(inputs)}")
-            # 入管容量应均等或受限
-            if inputs and len(inputs) >= 2:
-                caps = [p.capacity for p in inputs]
-                max_cap = max(caps)
-                min_cap = min(caps)
-                if max_cap - min_cap > tolerance:
-                    # 允许不均等(供给不足)，但不超出 max_flow/N
-                    fair = component.max_flow / len(inputs)
-                    for i, pipe in enumerate(inputs):
-                        if pipe.capacity > fair + tolerance:
-                            issues.append(f"[{name}] 入{i}容量 {pipe.capacity:.4f} > 公平份额 {fair:.4f}")
+            # 入管容量均抽验证
+            if inputs:
+                downstream_cap = min(p.capacity for p in outputs) if outputs else component.max_flow
+                capacity_limit = min(component.max_flow, downstream_cap)
+                limits = [p.supply for p in inputs]
+                expected = _fair_allocate(capacity_limit, limits)
+                for i, pipe in enumerate(inputs):
+                    if abs(pipe.capacity - expected[i]) > tolerance:
+                        issues.append(f"[{name}] 入{i} capacity={pipe.capacity:.4f} ≠ 期望 {expected[i]:.4f}")
 
         elif isinstance(component, Limiter):
             if abs(total_in - total_out) > tolerance:
