@@ -126,20 +126,14 @@ def build_network(nodes_data: dict | None = None, edges_data: list[dict] | None 
         net.out_edges[src].append(pipe)
         net.in_edges[dst].append(pipe)
 
-    # 校验
-    validate(net)
+    # 结构校验
+    validate_structure(net)
 
     return net
 
 
-def validate(net: Network) -> None:
-    """校验网络合法性
-
-    检查项：
-    - 端口数限制
-    - DAG 无环
-    - 无孤立节点
-    """
+def validate_structure(net: Network) -> None:
+    """校验网络结构合法性（端口数限制）"""
     for name, comp in net.nodes.items():
         in_count = len(net.in_edges[name])
         out_count = len(net.out_edges[name])

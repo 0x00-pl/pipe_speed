@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .io_handler import load_network, print_results, format_echo
-from .solver import solve
+from .solver import solve, validate
 
 SEP = "====== {} ======"
 
@@ -114,6 +114,13 @@ def main():
     # 求解
     iterations = solve(net, epsilon=args.epsilon, max_iterations=args.max_iter,
                        use_fraction=args.fraction)
+
+    # 验证
+    issues = validate(net)
+    if issues:
+        print("====== 验证失败 ======", file=sys.stderr)
+        for issue in issues:
+            print(f"  ✗ {issue}", file=sys.stderr)
 
     # 输出
     if not args.json:
