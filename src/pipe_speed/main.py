@@ -8,7 +8,8 @@ import sys
 from pathlib import Path
 
 from .io_handler import load_network, print_results, format_echo
-from .solver import solve, validate
+from .solver import solve
+from .validate import validate
 
 SEP = "====== {} ======"
 
