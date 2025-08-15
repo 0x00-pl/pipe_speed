@@ -11,8 +11,7 @@ from .validate import _fair_allocate
 
 
 def draw_capacity(max_flow, pipes: list[Pipe]) -> None:
-    if not pipes:
-        return
+    assert pipes
     limits = [max(p.supply, type(max_flow)(0)) for p in pipes]
     allocated = _fair_allocate(max_flow, limits)
     for pipe, value in zip(pipes, allocated):
@@ -20,8 +19,7 @@ def draw_capacity(max_flow, pipes: list[Pipe]) -> None:
 
 
 def push_supply(current_flow, pipes: list[Pipe]) -> None:
-    if not pipes:
-        return
+    assert pipes
     limits = [min(p.capacity, p.max_flow) for p in pipes]
     allocated = _fair_allocate(current_flow, limits)
     for pipe, value in zip(pipes, allocated):
