@@ -134,3 +134,68 @@ class TestFractionFormatting:
         solve(net, use_fraction=True)
         result = format_results(net, 2, fraction=True)
         assert "(1/12)" in result  # 10/120 = 1/12
+
+    def test_format_single_iteration(self):
+        from pipe_speed.io_handler import format_results
+        net, _ = load_network("-", content="s -> a")
+        solve(net)
+        result = format_results(net, 1)
+        assert "收敛于 1 次迭代" in result
+
+
+class TestQueryMatching:
+    def test_query_node_match(self):
+        from pipe_speed.io_handler import Query
+        q = Query(node="a")
+        assert q.matches("a", "b")
+        assert q.matches("b", "a")
+        assert not q.matches("b", "c")
+
+    def test_query_wildcard_both(self):
+        from pipe_speed.io_handler import Query
+        q = Query(source="*", target="*")
+        assert q.matches("a", "b")
+
+    def test_query_source_only(self):
+        from pipe_speed.io_handler import Query
+        q = Query(source="a")
+        assert q.matches("a", "b")
+
+
+class TestTextFormatErrors:
+    def test_empty_node_name_in_edge(self):
+        with pytest.raises(ValueError, match="节点名为空"):
+            load_network("-", content=" -> b")
+
+    def test_empty_node_name_in_attr(self):
+        with pytest.raises(ValueError, match="名称为空"):
+            load_network("-", content=" : 10")
+
+    def test_malformed_edge(self):
+        with pytest.raises(ValueError, match="无效的管道定义"):
+            load_network("-", content="a -> b -> c")
+
+
+class TestFormatResultsEdgeCases:
+    def test_zero_total_inlet_fraction(self):
+        from pipe_speed.io_handler import format_results
+        net, _ = load_network("-", content="in : 0\nin -> a\na -> b")
+        solve(net)
+        result = format_results(net, 2, fraction=True)
+        assert "in → a" in result
+
+
+class TestRenderNetwork:
+    def test_render_empty(self):
+        from pipe_speed.io_handler import render_network
+        from pipe_speed.network import Network
+        net = Network()
+        result = render_network(net)
+        assert "空网络" in result
+
+    def test_render_basic(self):
+        from pipe_speed.io_handler import render_network
+        net, _ = load_network("-", content="s -> a\na -> b\nb -> c")
+        result = render_network(net)
+        assert "s" in result
+        assert "a" in result
