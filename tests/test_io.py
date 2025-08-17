@@ -193,9 +193,36 @@ class TestRenderNetwork:
         result = render_network(net)
         assert "空网络" in result
 
+    def test_render_without_mermaidx(self, monkeypatch):
+        """Test render without mermaidx installed"""
+        import builtins
+        original_import = builtins.__import__
+        def mock_import(name, *args, **kwargs):
+            if name == 'mermaidx':
+                raise ImportError("No module named 'mermaidx'")
+            return original_import(name, *args, **kwargs)
+        monkeypatch.setattr(builtins, '__import__', mock_import)
+        from pipe_speed.io_handler import render_network
+        net, _ = load_network("-", content="s -> a\na -> b")
+        result = render_network(net)
+        assert "mermaidx" in result.lower()
+
     def test_render_basic(self):
         from pipe_speed.io_handler import render_network
         net, _ = load_network("-", content="s -> a\na -> b\nb -> c")
         result = render_network(net)
         assert "s" in result
         assert "a" in result
+
+
+class TestJsonFormatEdgeCases:
+    def test_json_missing_edges(self):
+        with pytest.raises(ValueError, match="缺少 'edges'"):
+            load_network("-", content='{"nodes":{}}')
+
+    def test_json_file_loading(self, tmp_path):
+        import json
+        f = tmp_path / "test.json"
+        f.write_text(json.dumps({"edges": [{"from": "a", "to": "b"}]}))
+        net, _ = load_network(str(f))
+        assert len(net.pipes) == 1

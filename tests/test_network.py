@@ -111,6 +111,16 @@ class TestTwoInletsToMerger:
         assert _flow(net, "mg", "out") == pytest.approx(10)
 
 
+class TestExplicitType:
+    def test_invalid_type_error(self):
+        from pipe_speed.network import build_network
+        with pytest.raises(ValueError, match="未知的类型"):
+            build_network(
+                {"x": {"type": "unknown"}},
+                [{"from": "x", "to": "a"}, {"from": "a", "to": "b"}]
+            )
+
+
 class TestComplexNetwork:
     """多级混合网络"""
 
