@@ -6,6 +6,14 @@ from io import StringIO
 
 
 class TestIOGaps:
+    def test_unrecognized_line(self):
+        """io_handler.py: 无法识别的行"""
+        from pipe_speed.io_handler import load_network
+        with pytest.raises(ValueError, match="无法识别的行"):
+            load_network("-", content="garbage\ns -> a")
+
+
+class TestIOGaps2:
     def test_load_stdin_no_content(self, monkeypatch):
         monkeypatch.setattr(sys, 'stdin', StringIO("s -> a\na -> b"))
         from pipe_speed.io_handler import load_network

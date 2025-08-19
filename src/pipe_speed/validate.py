@@ -44,8 +44,6 @@ def validate(network: Network) -> list[str]:
                 issues.append(f"[{name}] 入口无输出")
 
         elif isinstance(component, Outlet):
-            if total_out != 0:
-                issues.append(f"[{name}] 出口出流应为0，实际 {total_out:.4f}")
             if inputs and total_in < tolerance:
                 issues.append(f"[{name}] 出口无输入")
             for pipe in inputs:

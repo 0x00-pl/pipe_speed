@@ -134,18 +134,13 @@ def main():
                 q.matches(p.source, p.target) for q in queries
             )
         ]
-        if args.fraction:
-            total_in = _total_inlet_flow(net)
-            scale = total_in if total_in > 0 else 1
-        else:
-            scale = 1
         result = {
             "iterations": iterations,
             "pipes": [
                 {
                     "source": p.source,
                     "target": p.target,
-                    "flow": float(p.flow) / float(scale)
+                    "flow": float(p.flow)
                 }
                 for p in matching
             ]

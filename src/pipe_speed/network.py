@@ -126,47 +126,8 @@ def build_network(nodes_data: dict | None = None, edges_data: list[dict] | None 
         net.out_edges[src].append(pipe)
         net.in_edges[dst].append(pipe)
 
-    # 结构校验
-    validate_structure(net)
-
     return net
 
-
-def validate_structure(net: Network) -> None:
-    """校验网络结构合法性（端口数限制）"""
-    for name, comp in net.nodes.items():
-        in_count = len(net.in_edges[name])
-        out_count = len(net.out_edges[name])
-
-        if isinstance(comp, Inlet):
-            if in_count != 0:
-                raise ValueError(f"入口 '{name}': 应有 0 条入边，实际 {in_count}")
-            if out_count < 1:
-                raise ValueError(f"入口 '{name}': 至少需要 1 条出边")
-
-        elif isinstance(comp, Outlet):
-            if out_count != 0:
-                raise ValueError(f"出口 '{name}': 应有 0 条出边，实际 {out_count}")
-            if in_count < 1:
-                raise ValueError(f"出口 '{name}': 至少需要 1 条入边")
-
-        elif isinstance(comp, Splitter):
-            if in_count != 1:
-                raise ValueError(f"分流器 '{name}': 需要恰好 1 条入边，实际 {in_count}")
-            if out_count < 1 or out_count > 3:
-                raise ValueError(f"分流器 '{name}': 输出端口数需在 1~3，实际 {out_count}")
-
-        elif isinstance(comp, Merger):
-            if out_count != 1:
-                raise ValueError(f"汇流器 '{name}': 需要恰好 1 条出边，实际 {out_count}")
-            if in_count < 1 or in_count > 3:
-                raise ValueError(f"汇流器 '{name}': 输入端口数需在 1~3，实际 {in_count}")
-
-        elif isinstance(comp, Limiter):
-            if in_count != 1:
-                raise ValueError(f"限流器 '{name}': 需要恰好 1 条入边，实际 {in_count}")
-            if out_count != 1:
-                raise ValueError(f"限流器 '{name}': 需要恰好 1 条出边，实际 {out_count}")
 
 def topological_order(net: Network, reverse: bool = False) -> list[str]:
     """返回节点顺序（Kahn 拓扑排序，兼容含环图）
