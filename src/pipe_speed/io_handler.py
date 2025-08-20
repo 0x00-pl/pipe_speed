@@ -196,15 +196,15 @@ def format_results(net: Network, iterations: int,
             flow = pipe.flow
             if fraction:
                 if isinstance(flow, Fraction):
-                    f_str = f"{flow.numerator}/{flow.denominator}"
+                    f_val = flow
                 else:
-                    f_str = str(Fraction(flow).limit_denominator(10**8))
-                # 相对于满速（管道 max_flow）的比例
+                    f_val = Fraction(flow).limit_denominator(10**8)
+                f_str = str(f_val.numerator) if f_val.denominator == 1 else f"{f_val.numerator}/{f_val.denominator}"
+                # 管道利用率
                 max_f = Fraction(pipe.max_flow).limit_denominator(10**8) if not isinstance(pipe.max_flow, Fraction) else pipe.max_flow
                 if max_f > 0:
-                    f_val = flow if isinstance(flow, Fraction) else Fraction(flow).limit_denominator(10**8)
                     ratio = f_val / max_f
-                    r_str = f"{ratio.numerator}/{ratio.denominator}"
+                    r_str = str(ratio.numerator) if ratio.denominator == 1 else f"{ratio.numerator}/{ratio.denominator}"
                     lines.append(f"{pipe.source} → {pipe.target}  :  {f_str}  ({r_str})")
                 else:
                     lines.append(f"{pipe.source} → {pipe.target}  :  {f_str}")
