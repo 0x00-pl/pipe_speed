@@ -12,7 +12,9 @@ from .validate import _fair_allocate
 
 def draw_capacity(max_flow, pipes: list[Pipe]) -> None:
     assert pipes
-    limits = [max(p.supply, type(max_flow)(0)) for p in pipes]
+    # 输出受限时用 max_flow（管道潜力），输入受限时用 supply（实际可用）
+    zero = type(max_flow)(0)
+    limits = [p.max_flow if p.supply > p.capacity else max(p.supply, zero) for p in pipes]
     allocated = _fair_allocate(max_flow, limits)
     for pipe, value in zip(pipes, allocated):
         pipe.capacity = value
