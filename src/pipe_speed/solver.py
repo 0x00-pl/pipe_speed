@@ -22,7 +22,8 @@ def draw_capacity(max_flow, pipes: list[Pipe]) -> None:
 
 def push_supply(current_flow, pipes: list[Pipe]) -> None:
     assert pipes
-    limits = [min(p.capacity, p.max_flow) for p in pipes]
+    # 输入受限(有空间)时 generous = max_flow，输出受限(已满)时严格 = capacity
+    limits = [p.max_flow if p.supply < p.capacity else p.capacity for p in pipes]
     allocated = _fair_allocate(current_flow, limits)
     for pipe, value in zip(pipes, allocated):
         pipe.supply = value
