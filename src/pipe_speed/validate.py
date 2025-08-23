@@ -54,7 +54,7 @@ def validate(network: Network) -> list[str]:
             if abs(total_in - total_out) > tolerance:
                 issues.append(f"[{name}] 分流器不守恒: in={total_in:.4f} out={total_out:.4f}")
             if outputs and total_in > 0:
-                limits = [min(p.capacity, p.max_flow) for p in outputs]
+                limits = [p.max_flow if p.supply < p.capacity else p.capacity for p in outputs]
                 expected = _fair_allocate(min(total_in, component.max_flow), limits)
                 for i, pipe in enumerate(outputs):
                     if abs(pipe.supply - expected[i]) > tolerance:
@@ -70,7 +70,7 @@ def validate(network: Network) -> list[str]:
             if inputs:
                 downstream_cap = min(p.capacity for p in outputs) if outputs else component.max_flow
                 capacity_limit = min(component.max_flow, downstream_cap)
-                limits = [p.supply for p in inputs]
+                limits = [p.max_flow if p.supply > p.capacity else max(p.supply, 0) for p in inputs]
                 expected = _fair_allocate(capacity_limit, limits)
                 for i, pipe in enumerate(inputs):
                     if abs(pipe.capacity - expected[i]) > tolerance:
