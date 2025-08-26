@@ -97,7 +97,6 @@ class TestNetworkGaps:
         net = build_network(edges_data=[{"from": "a", "to": "b"}])
         assert len(net.nodes) == 2
 
-class TestValidateGaps:
     def test_limiter_broken(self):
         from pipe_speed.io_handler import load_network
         from pipe_speed.solver import solve
