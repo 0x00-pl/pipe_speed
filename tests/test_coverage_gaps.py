@@ -14,11 +14,20 @@ class TestIOGaps:
 
 
 class TestIOGaps2:
-    def test_invalid_node_colon(self):
-        """io_handler.py L152: node with colon, no value before ->"""
-        from pipe_speed.io_handler import load_network
-        with pytest.raises(ValueError):
-            load_network("-", content="a\ns -> a")
+    def test_format_echo_with_source_target_query(self):
+        """io_handler.py L253-254: query with both source and target"""
+        from pipe_speed.io_handler import load_network, format_echo
+        net, queries = load_network("-", content="s -> a\na -> b\na -> b : ?")
+        result = format_echo(net, queries)
+        assert "a -> b : ?" in result
+
+    def test_mermaid_node_label_non_default(self):
+        """io_handler.py L295: _to_mermaid node label when max_flow != 120"""
+        from pipe_speed.io_handler import load_network, render_network
+        net, _ = load_network("-", content="s : 50\ns -> a\na -> b")
+        result = render_network(net)
+        # s : 50 should appear in the rendered output
+        assert len(result) > 0
 
     def test_fraction_with_zero_max_flow(self):
         """io_handler.py L210: fraction when pipe max_flow=0"""

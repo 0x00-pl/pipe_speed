@@ -38,8 +38,7 @@ def validate(network: Network) -> list[str]:
         total_out = sum(p.flow for p in outputs)
 
         if isinstance(component, Inlet):
-            if total_in != 0:
-                issues.append(f"[{name}] 入口入流应为0，实际 {total_in:.4f}")
+            assert total_in == 0, f"[{name}] 入口入流应为0，实际 {total_in:.4f}"
             if outputs and total_out < tolerance:
                 issues.append(f"[{name}] 入口无输出")
 

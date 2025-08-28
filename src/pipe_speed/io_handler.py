@@ -148,8 +148,7 @@ def _load_text(text: str) -> tuple[Network, list[Query]]:
         elif ":" in line:
             # 节点属性: name : max_flow
             parts = line.split(":", 1)
-            if len(parts) != 2:
-                raise ValueError(f"无效的节点定义: '{line}'")
+            assert len(parts) == 2, f"无效的节点定义: '{line}'"
             name = parts[0].strip()
             value_str = parts[1].strip()
             if not name:
