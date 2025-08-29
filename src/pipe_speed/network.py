@@ -1,12 +1,11 @@
 """网络图构建、类型推断、校验、拓扑排序"""
 
 from dataclasses import dataclass, field
-from typing import Union
 
-from .models import Pipe, Inlet, Outlet, Splitter, Merger, Limiter
+from .models import Inlet, Limiter, Merger, Outlet, Pipe, Splitter
 
 # 元件联合类型
-Component = Union[Inlet, Outlet, Splitter, Merger, Limiter]
+Component = Inlet | Outlet | Splitter | Merger | Limiter
 
 
 @dataclass
@@ -138,12 +137,14 @@ def topological_order(net: Network, reverse: bool = False) -> list[str]:
     if not reverse:
         degree = {name: len(net.in_edges[name]) for name in net.nodes}
         queue = [n for n, d in degree.items() if d == 0]
-        neighbours = lambda n: [p.target for p in net.out_edges[n]]
+        def neighbours(n):
+            return [p.target for p in net.out_edges[n]]
         upstream_attr = 'source'
     else:
         degree = {name: len(net.out_edges[name]) for name in net.nodes}
         queue = [n for n, d in degree.items() if d == 0]
-        neighbours = lambda n: [p.source for p in net.in_edges[n]]
+        def neighbours(n):
+            return [p.source for p in net.in_edges[n]]
         upstream_attr = 'target'
 
     order = []

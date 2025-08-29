@@ -1,6 +1,6 @@
 """网络验证：守恒性 + 分配逻辑"""
 
-from .models import Inlet, Outlet, Splitter, Merger, Limiter
+from .models import Inlet, Limiter, Merger, Outlet, Splitter
 from .network import Network
 
 

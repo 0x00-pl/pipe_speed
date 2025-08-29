@@ -5,7 +5,7 @@
 
 from fractions import Fraction
 
-from .models import Pipe, Inlet, Outlet, Splitter, Merger, Limiter
+from .models import Inlet, Limiter, Merger, Outlet, Pipe, Splitter
 from .network import Network, topological_order
 from .validate import _fair_allocate
 
@@ -16,7 +16,7 @@ def draw_capacity(max_flow, pipes: list[Pipe]) -> None:
     zero = type(max_flow)(0)
     limits = [p.max_flow if p.supply > p.capacity else max(p.supply, zero) for p in pipes]
     allocated = _fair_allocate(max_flow, limits)
-    for pipe, value in zip(pipes, allocated):
+    for pipe, value in zip(pipes, allocated, strict=False):
         pipe.capacity = value
 
 
@@ -25,7 +25,7 @@ def push_supply(current_flow, pipes: list[Pipe]) -> None:
     # 输入受限(有空间)时 generous = max_flow，输出受限(已满)时严格 = capacity
     limits = [p.max_flow if p.supply < p.capacity else p.capacity for p in pipes]
     allocated = _fair_allocate(current_flow, limits)
-    for pipe, value in zip(pipes, allocated):
+    for pipe, value in zip(pipes, allocated, strict=False):
         pipe.supply = value
 
 
@@ -46,7 +46,7 @@ def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
 
     previous_flows = [pipe.flow for pipe in network.pipes]
 
-    for iteration in range(max_iterations):
+    for iteration in range(max_iterations):  # noqa: B007
         # --- capacity pass: 出→入 ---
         for name in rev_order:
             component = network.nodes[name]
@@ -67,13 +67,12 @@ def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
                 if inputs:
                     downstream_cap = min(p.capacity for p in outputs) if outputs else max_flow
                     draw_capacity(min(max_flow, downstream_cap), inputs)
-            elif isinstance(component, Limiter):
-                if inputs:
-                    flow = min(p.flow for p in inputs) if inputs else max_flow
-                    flow = min(flow, max_flow)
-                    if outputs:
-                        flow = min(flow, min(p.capacity for p in outputs))
-                    draw_capacity(flow, inputs)
+            elif isinstance(component, Limiter) and inputs:
+                flow = min(p.flow for p in inputs) if inputs else max_flow
+                flow = min(flow, max_flow)
+                if outputs:
+                    flow = min(flow, min(p.capacity for p in outputs))
+                draw_capacity(flow, inputs)
 
         # --- supply pass: 入→出 ---
         for name in order:
@@ -91,13 +90,7 @@ def solve(network: Network, epsilon: float = 1e-9, max_iterations: int = 1000,
                 total_input = sum(p.flow for p in inputs)
                 flow = min(total_input, max_flow)
                 push_supply(flow, outputs)
-            elif isinstance(component, Merger):
-                total_input = sum(p.flow for p in inputs)
-                flow = min(total_input, max_flow)
-                if outputs:
-                    flow = min(flow, min(p.capacity for p in outputs))
-                push_supply(flow, outputs)
-            elif isinstance(component, Limiter):
+            elif isinstance(component, (Merger, Limiter)):
                 total_input = sum(p.flow for p in inputs)
                 flow = min(total_input, max_flow)
                 if outputs:

@@ -1,6 +1,6 @@
 """管道网络元件数据模型"""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

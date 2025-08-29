@@ -59,7 +59,7 @@ def load_network(filepath: str, content: str | None = None) -> tuple[Network, li
         path = Path(filepath)
         if not path.exists():
             raise FileNotFoundError(f"文件不存在: {filepath}")
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             content = f.read()
 
     # 去除 UTF-8 BOM
@@ -156,7 +156,7 @@ def _load_text(text: str) -> tuple[Network, list[Query]]:
             try:
                 max_flow = float(value_str)
             except ValueError:
-                raise ValueError(f"无效的流速值: '{value_str}' (行: '{line}')")
+                raise ValueError(f"无效的流速值: '{value_str}' (行: '{line}')") from None
             nodes_data[name] = {"max_flow": max_flow}
 
         else:
@@ -194,13 +194,13 @@ def format_results(net: Network, iterations: int,
         if _match_any(queries, pipe.source, pipe.target):
             flow = pipe.flow
             if fraction:
-                if isinstance(flow, Fraction):
-                    f_val = flow
-                else:
-                    f_val = Fraction(flow).limit_denominator(10**8)
+                f_val = flow if isinstance(flow, Fraction) else Fraction(flow).limit_denominator(10 ** 8)
                 f_str = str(f_val.numerator) if f_val.denominator == 1 else f"{f_val.numerator}/{f_val.denominator}"
                 # 管道利用率
-                max_f = Fraction(pipe.max_flow).limit_denominator(10**8) if not isinstance(pipe.max_flow, Fraction) else pipe.max_flow
+                if isinstance(pipe.max_flow, Fraction):
+                    max_f = pipe.max_flow
+                else:
+                    max_f = Fraction(pipe.max_flow).limit_denominator(10**8)
                 if max_f > 0:
                     ratio = f_val / max_f
                     r_str = str(ratio.numerator) if ratio.denominator == 1 else f"{ratio.numerator}/{ratio.denominator}"

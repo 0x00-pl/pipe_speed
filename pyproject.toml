@@ -15,7 +15,19 @@ mermaidx = ">=0.8"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
+ruff = ">=0.8"
 pytest-cov = "^7.1.0"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
 
 [tool.poetry.scripts]
 pipe-speed = "pipe_speed.main:main"
