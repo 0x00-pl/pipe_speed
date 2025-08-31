@@ -68,7 +68,7 @@ class TestMainBasic:
     def test_show_flag(self, tmp_path, capsys):
         f = tmp_path / "net.txt"
         f.write_text("s -> a\na -> b")
-        sys.argv = ["pipe-speed", str(f), "--show"]
+        sys.argv = ["pipe-speed", str(f), "--mermaid-ascii"]
         try:
             main()
         except SystemExit:

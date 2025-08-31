@@ -7,7 +7,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from .io_handler import format_echo, load_network, print_results
+from .io_handler import format_echo, load_network, print_results, _to_mermaid
 from .solver import solve
 from .validate import validate
 
@@ -52,7 +52,7 @@ def main():
 
 示例:
   pipe-speed network.txt
-  pipe-speed network.txt --show --echo
+  pipe-speed network.txt --mermaid-ascii --echo
   cat network.txt | pipe-speed -
   pipe-speed network.json --json""",
     )
@@ -61,8 +61,12 @@ def main():
         help="网络定义文件路径（- 表示 stdin）"
     )
     parser.add_argument(
-        "--show", action="store_true",
+        "--mermaid-ascii", action="store_true",
         help="显示网络 ASCII 拓扑图（需 mermaidx）"
+    )
+    parser.add_argument(
+        "--mermaid", action="store_true",
+        help="输出 Mermaid 流程图源码"
     )
     parser.add_argument(
         "--echo", action="store_true",
@@ -75,6 +79,10 @@ def main():
     parser.add_argument(
         "--json", action="store_true",
         help="以 JSON 格式输出结果"
+    )
+    parser.add_argument(
+        "--quiet", action="store_true",
+        help="不输出结果段"
     )
     parser.add_argument(
         "--epsilon", type=float, default=1e-9,
@@ -106,11 +114,16 @@ def main():
         print(SEP.format("输入"))
         print(format_echo(net, queries))
 
-    # --show: 显示拓扑图（需 mermaidx）
-    if args.show:
+    # --mermaid-ascii: 显示拓扑图（需 mermaidx）
+    if args.mermaid_ascii:
         print(SEP.format("拓扑"))
         from .io_handler import render_network
         print(render_network(net))
+
+    # --mermaid: 输出 Mermaid 源码
+    if args.mermaid:
+        print(SEP.format("Mermaid"))
+        print(_to_mermaid(net))
 
     # 求解
     iterations = solve(net, epsilon=args.epsilon, max_iterations=args.max_iter,
@@ -124,9 +137,10 @@ def main():
             print(f"  ✗ {issue}", file=sys.stderr)
 
     # 输出
-    if not args.json:
-        print(SEP.format("结果"))
-    if args.json:
+    if not args.quiet:
+        if not args.json:
+            print(SEP.format("结果"))
+    if args.json and not args.quiet:
         import json
         matching = [
             p for p in net.pipes
@@ -146,7 +160,7 @@ def main():
             ]
         }
         print(json.dumps(result, ensure_ascii=False, indent=2))
-    else:
+    elif not args.quiet:
         print_results(net, iterations, queries, fraction=args.fraction)
 
 
