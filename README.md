@@ -67,10 +67,12 @@ e : ?              # 查询过滤
 
 | 参数 | 说明 |
 |------|------|
-| `--show` | ASCII 拓扑图（mermaidx） |
+| `--mermaid-ascii` | ASCII 拓扑图（mermaidx） |
+| `--mermaid` | 输出 Mermaid 流程图源码 |
 | `--echo` | 回显解析后的网络 |
 | `--fraction` | 精确分数 a/b 输出 |
 | `--json` | JSON 输出 |
+| `--quiet` | 不输出结果段 |
 | `--epsilon N` | 收敛阈值 (1e-9) |
 | `--max-iter N` | 最大迭代 (1000) |
 
@@ -107,5 +109,5 @@ src/pipe_speed/
 
 ```bash
 poetry run pytest tests/ --cov=pipe_speed
-# 102 tests, 97% coverage
+# 110 tests, 99% coverage
 ```
