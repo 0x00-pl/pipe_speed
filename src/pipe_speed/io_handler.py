@@ -285,17 +285,15 @@ def render_network(net: Network) -> str:
 
 
 def _to_mermaid(net: Network) -> str:
-    """将网络转为 Mermaid 流程图语法"""
+    """将网络转为 Mermaid 流程图语法，边上标注流量"""
     lines = ["graph TD"]
 
-    # 定义节点（仅非默认 max_flow 时附加标签）
     for name, comp in net.nodes.items():
         mf = getattr(comp, 'max_flow', 120)
         if mf != 120:
             lines.append(f"    {name}[{name} : {mf:.0f}]")
 
     for pipe in net.pipes:
-        src = pipe.source
-        dst = pipe.target
-        lines.append(f"    {src} --> {dst}")
+        flow_label = f"{pipe.flow:.2f}".rstrip("0").rstrip(".")
+        lines.append(f"    {pipe.source} -->|{flow_label}| {pipe.target}")
     return "\n".join(lines)
