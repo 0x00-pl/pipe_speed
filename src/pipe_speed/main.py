@@ -114,6 +114,10 @@ def main():
         print(SEP.format("输入"))
         print(format_echo(net, queries))
 
+    # 求解
+    iterations = solve(net, epsilon=args.epsilon, max_iterations=args.max_iter,
+                       use_fraction=args.fraction)
+
     # --mermaid-ascii: 显示拓扑图（需 mermaidx）
     if args.mermaid_ascii:
         print(SEP.format("拓扑"))
@@ -124,10 +128,6 @@ def main():
     if args.mermaid:
         print(SEP.format("Mermaid"))
         print(_to_mermaid(net))
-
-    # 求解
-    iterations = solve(net, epsilon=args.epsilon, max_iterations=args.max_iter,
-                       use_fraction=args.fraction)
 
     # 验证
     issues = validate(net)
